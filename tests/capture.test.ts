@@ -4,7 +4,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createCaptureHandler } from '../src/capture.js'
+import { CaptureFeed, createCaptureHandler } from '../src/capture.js'
 import type { CaptureConfig } from '../src/capture.js'
 import { MemoryStore } from '../src/store.js'
 import type { StoreLimits } from '../src/store.js'
@@ -24,8 +24,9 @@ const LIMITS: StoreLimits = { contentMaxChars: 500, tagsMax: 8 }
 function makeHandler() {
   const table = new FakeKvTable<string, MemoryRecord>()
   const store = new MemoryStore(table, LIMITS)
-  const handler = createCaptureHandler(() => CONFIG, store)
-  return { handler, store }
+  const feed = new CaptureFeed()
+  const handler = createCaptureHandler(() => CONFIG, store, feed)
+  return { handler, store, feed }
 }
 
 function session(cwd: string | undefined, id = 'session-1'): Session {
@@ -59,7 +60,7 @@ async function settle(): Promise<void> {
 }
 
 test('命中句式：提取句式后的内容并按会话 cwd 归属', async () => {
-  const { handler, store } = makeHandler()
+  const { handler, store, feed } = makeHandler()
   handler(session('/workspace/a'), userEvent('请记住：部署走 systemd 服务'))
   await settle()
   const hit = store.search({ workspace: '/workspace/a' })[0]
@@ -68,6 +69,13 @@ test('命中句式：提取句式后的内容并按会话 cwd 归属', async () 
   assert.equal(hit.record.kind, 'fact')
   assert.equal(hit.record.source, 'auto')
   assert.equal(hit.record.workspace, '/workspace/a')
+  // 保存成功后确认条目入队（带会话 id 与正文），供提示词转述
+  const taken = feed.take('session-1')
+  assert.equal(taken.length, 1)
+  assert.equal(taken[0]?.sessionId, 'session-1')
+  assert.equal(taken[0]?.content, '部署走 systemd 服务')
+  // 取走即消费
+  assert.equal(feed.take('session-1').length, 0)
 })
 
 test('句式后无内容时保存整句', async () => {
@@ -80,12 +88,13 @@ test('句式后无内容时保存整句', async () => {
   assert.equal(hit.record.workspace, '*')
 })
 
-test('未命中句式与插件来源不捕获', async () => {
-  const { handler, store } = makeHandler()
+test('未命中句式与插件来源不捕获（feed 无入队）', async () => {
+  const { handler, store, feed } = makeHandler()
   handler(session('/w'), userEvent('今天天气不错'))
   handler(session('/w'), pluginEvent('请记住：这是插件注入'))
   await settle()
   assert.equal(store.search({}).length, 0)
+  assert.equal(feed.take('session-1').length, 0)
 })
 
 test('按会话限流：超过 maxPerSession 后不再捕获', async () => {

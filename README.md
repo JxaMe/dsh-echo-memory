@@ -19,11 +19,13 @@
 对话里直接说就行：
 
 ```text
-记住：这个项目用 pnpm workspaces，构建命令是 pnpm run build   ← 自动落库
+记住：这个项目用 pnpm workspaces，构建命令是 pnpm run build   ← 自动落库，agent 会回一句「已记住 ✅」
 你还记得这个项目用什么包管理器吗                                  ← 新会话也能直接答
 搜一下关于部署的记忆                                            ← agent 调 memory_search
 把那条关于 xx 的记忆删掉                                        ← agent 先搜出 id 再删
 ```
+
+说「记住：……」后 agent 会用一句话**确认已记住**——看到确认即代表真的落库了（保存失败不会报已记住）。
 
 **删除模式**（设置卡片里选，默认墓碑机制）：
 

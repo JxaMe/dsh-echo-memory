@@ -20,15 +20,48 @@ export interface CaptureConfig {
   readonly maxPerSession: number
 }
 
+/** 捕获成功后的确认条目（供提示词注入转述给用户，一次消费）。 */
+export interface CaptureFeedEntry {
+  /** 捕获发生的会话 id（确认只回显给同一会话）。 */
+  readonly sessionId: string
+  /** 已落库的记忆正文。 */
+  readonly content: string
+}
+
+/**
+ * 捕获确认缓冲：捕获保存**成功**后才入队；提示词组装时按会话取出
+ * （take = 消费），保证「确认 = 真存上了」且只转述一次。
+ */
+export class CaptureFeed {
+  private readonly entries: CaptureFeedEntry[] = []
+
+  /** 记一条已落库的捕获；保存失败不得入队（由调用方在 resolve 后调）。 */
+  push(entry: CaptureFeedEntry): void {
+    this.entries.push(entry)
+  }
+
+  /** 取出并消费指定会话的全部待确认条目（无则空数组）。 */
+  take(sessionId: string): CaptureFeedEntry[] {
+    const taken = this.entries.filter(entry => entry.sessionId === sessionId)
+    if (taken.length === 0) return taken
+    const rest = this.entries.filter(entry => entry.sessionId !== sessionId)
+    this.entries.length = 0
+    this.entries.push(...rest)
+    return taken
+  }
+}
+
 /**
  * 构造捕获监听器。返回的 handler 可能抛错（store 未就绪等），
  * 由注册方用 `ctx.on` 挂载；内部捕获保存失败仅告警，不打断事件流。
  * @param config - 每次事件现读的捕获配置（面板变更即时生效）。
  * @param store - 已就绪的仓储。
+ * @param feed - 捕获确认缓冲：保存成功后才入队（失败不报「已记住」）。
  */
 export function createCaptureHandler(
   config: () => CaptureConfig,
   store: MemoryStore,
+  feed: CaptureFeed,
 ): (session: Session, event: SessionEvent) => void {
   const counts = new Map<string, number>()
   return (session, event) => {
@@ -54,7 +87,12 @@ export function createCaptureHandler(
       const claimed = text.slice(index + pattern.length).replace(/^[:：,，。.\s]+/, '').trim()
       const content = claimed.length > 0 ? claimed : text.trim()
       const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
+      const sessionId = session.header.id
       void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })
+        .then(() => {
+          // 确认 = 真存上了：resolve 后才进缓冲（失败不报「已记住」）。
+          feed.push({ sessionId, content })
+        })
         .catch(error => {
           console.warn('[dsh-echo-memory] auto capture failed; message skipped', error)
         })

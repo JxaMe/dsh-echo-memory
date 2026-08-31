@@ -12,6 +12,7 @@ import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { MemoryStore } from './store.js'
 import { GLOBAL_WORKSPACE, agentWorkspace } from './domain.js'
+import type { CaptureFeed } from './capture.js'
 
 /** 一次组装读取的注入配置（由调用方从当前设置源投影）。 */
 export interface MemoryInjectionConfig {
@@ -25,21 +26,32 @@ export interface MemoryInjectionConfig {
 
 /**
  * 构造组装期文本提供方：解析当前 agent 会话 cwd 过滤工作区记忆（`*` 全局记忆始终入选），
- * 渲染 Top-N 条；provider 必须全函数式，任何失败只告警一次并返回空串，绝不打断组装。
+ * 渲染 Top-N 条；若该会话刚发生「记住」句式自动捕获，前置一段一次性确认提示
+ * （agent 转述「已记住」给用户，消费即清）。provider 必须全函数式，任何失败只告警一次并返回空串，绝不打断组装。
  * @param store - 已就绪的仓储。
  * @param read - 每次组装现读的注入配置（面板变更即时生效）。
+ * @param feed - 捕获确认缓冲（按当前会话消费）。
  */
 export function memoryContextText(
   store: MemoryStore,
   read: () => MemoryInjectionConfig,
+  feed: CaptureFeed,
 ): (context: AssembleContext) => string {
   let warnedOnce = false
   return (context) => {
     try {
       const { enabled, limit, maxChars } = read()
-      if (!enabled) return ''
+      const justCaptured = takeCapturedFor(feed, context)
+      // 确认提示独立于注入开关：捕获发生了就该让用户知道。
+      const confirmText = justCaptured.length > 0
+        ? `[记忆确认] 刚刚已自动捕获 ${justCaptured.length} 条记忆：`
+          + justCaptured.map(entry => `「${entry.content}」`).join('、')
+          + '。请在回复开头用一句话向用户确认已记住（如「已记住 ✅」），不要复述全部内容，除非用户要求。\n'
+        : ''
+      if (!enabled) return confirmText.trimEnd()
       const workspace = agentWorkspace(context.agent) ?? GLOBAL_WORKSPACE
-      return store.recallText({ workspace, limit, maxChars })
+      const recall = store.recallText({ workspace, limit, maxChars })
+      return recall.length > 0 ? confirmText + recall : confirmText.trimEnd()
     } catch (error) {
       if (!warnedOnce) {
         warnedOnce = true
@@ -48,4 +60,11 @@ export function memoryContextText(
       return ''
     }
   }
+}
+
+/** 从缓冲取出当前会话的待确认条目（无会话上下文时返回空；取出即消费）。 */
+function takeCapturedFor(feed: CaptureFeed, context: AssembleContext): ReadonlyArray<{ readonly content: string }> {
+  const sessionId = context.agent?.session?.header?.id
+  if (sessionId === undefined) return []
+  return feed.take(sessionId)
 }

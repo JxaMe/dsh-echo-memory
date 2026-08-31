@@ -19,7 +19,7 @@ import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
 import { memoryTools } from './tools.js'
-import { createCaptureHandler } from './capture.js'
+import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
@@ -196,6 +196,8 @@ export default class MemoryService extends Service {
     }
   }
 
+  private readonly captureFeed = new CaptureFeed()
+
   private registerPrompt(): void {
     this.ctx.systemPrompt.context({
       name: 'memory',
@@ -207,7 +209,7 @@ export default class MemoryService extends Service {
           limit: settings.injectLimit,
           maxChars: settings.injectMaxChars,
         }
-      }),
+      }, this.captureFeed),
     })
   }
 
@@ -219,7 +221,7 @@ export default class MemoryService extends Service {
         patterns: settings.capturePatterns,
         maxPerSession: settings.captureMaxPerSession,
       }
-    }, this.requireStore()))
+    }, this.requireStore(), this.captureFeed))
   }
 
   private requireStore(): MemoryStore {
