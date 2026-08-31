@@ -19,7 +19,7 @@ import {
   parsePatternsField,
   patternsDraft,
   type FieldWrite,
-} from './card-util.js'
+} from './card-util.ts'
 
 /** 卡片可编辑的字段名。 */
 export type MemoryCardField =

@@ -112,8 +112,8 @@ export function MemoryTextField(props: {
   hint: string
   state: MemoryCardFieldState
   field: MemoryCardTextField
-  textarea?: boolean
-  numeric?: boolean
+  textarea?: boolean | undefined
+  numeric?: boolean | undefined
   onEdit: (text: string) => void
   onReset: (field: MemoryCardField) => void
 }) {
