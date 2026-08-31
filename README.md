@@ -198,30 +198,20 @@ interface MemoryRecord {
 
 > 以下以 web profile 为例。其他 profile（headless 等）步骤相同，把 `web` 换成对应 profile 名即可。已安装 DSH 且 `dsh` CLI 可用；**不需要本地 Node / pnpm**——构建由安装过程自动完成。
 
-### 方式 A：一条命令
+### 让 DSH 帮你安装
 
-复制并执行（自动完成：拉取源码 → `prepare` 构建 → 注册依赖 → 加入 bundles 装配）：
-
-```sh
-dsh plugin --profile web add github:JxaMe/dsh-echo-memory
-```
-
-**首次执行的一次性提示**：DSH 的构建安全策略会要求显式许可——把报错信息里打印的 `allowBuilds` 条目（形如 `dsh-echo-memory@https://codeload.github.com/...: true`）追加到 `~/.dsh/profiles/web/pnpm-workspace.yaml` 的 `allowBuilds:` 段，然后重跑上面同一条命令即成功。
-
-完成后重启使生效：`dsh-web restart`，然后按下文「验证生效」检查三点。
-
-### 方式 B：让 AI 安装
-
-复制以下提示词发给你的 AI 助手（DSH、Claude、Cursor 等均可），它负责执行与核验：
+把下面的提示词发给 **DSH 的 agent**（新建会话粘贴即可），它负责执行与核验：
 
 ````text
 请帮我安装 dsh-echo-memory 插件（DeepSeek Harness 跨会话记忆插件）到 web profile：
 
 1. 在终端执行：dsh plugin --profile web add github:JxaMe/dsh-echo-memory
-2. 若因构建许可失败，按报错提示把 allowBuilds 条目加入 ~/.dsh/profiles/web/pnpm-workspace.yaml 后重试同一条命令；
+2. 若因构建许可失败，按报错提示把 allowBuilds 条目加入本 profile 的 pnpm-workspace.yaml 后重试同一条命令；
 3. 确认 node_modules/dsh-echo-memory/lib/ 存在（index.js 与 client.js，构建产物）；
-4. 确认 ~/.dsh/profiles/web/package.json 的 dsh.profile.bundles 数组已含 "dsh-echo-memory"；
-5. 重启 web 服务（dsh-web restart，会中断当前会话）后，确认日志出现 [dsh-echo-memory] loaded，且 WebUI 设置 → 插件（第一个「插件」导航）→ 插件配置 出现「记忆（dsh-echo-memory）」卡片。
+4. 确认本 profile 的 package.json 里 dsh.profile.bundles 数组已含 "dsh-echo-memory"；
+5. 重启 DSH 服务使其生效（按你环境的服务管理方式重启，会中断当前会话），然后确认：
+   - 服务日志出现 [dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)；
+   - WebUI 设置 → 插件（第一个「插件」导航）→ 插件配置 出现「记忆（dsh-echo-memory）」卡片。
 
 完成后向我报告每步结果，有任何一步失败就停下来说明原因。
 ````
@@ -230,7 +220,7 @@ dsh plugin --profile web add github:JxaMe/dsh-echo-memory
 
 依次检查三点：
 
-1. **日志**：`dsh-web logs | grep dsh-echo-memory`，应看到
+1. **日志**：查看 DSH 服务日志并过滤 `dsh-echo-memory`，应看到
    `[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)`；
 2. **设置卡片**：WebUI → 设置 → 插件（第一个）→ 插件配置，可见「记忆（dsh-echo-memory）」卡片；
 3. **工具**：新会话让 agent「用 memory_search 搜一下任意词」，工具应可调用。
@@ -344,9 +334,7 @@ dsh plugin --profile web remove dsh-echo-memory
 ```
 
 ```sh
-# 3. 重启生效
-dsh-web restart
-
+# 3. 重启 DSH 服务使其生效（按你环境的服务管理方式重启）
 # 4. 验证已卸干净
 dsh --profile web --dump-config | grep dsh-echo-memory   # 应无输出
 ```
