@@ -35,17 +35,17 @@ function ensureDockStyles(): void {
   const tag = document.createElement('style')
   tag.id = STYLE_ID
   tag.textContent = `
-.dshm-dock { margin: 0 0 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
+.dshm-dock { box-sizing: border-box; flex: none; contain: content; width: 100%; max-width: 640px; margin: 0 auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
 .dshm-dockHeader { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 0; background: none; font: inherit; color: var(--dsw-alias-label-secondary); cursor: pointer; text-align: left; }
 .dshm-dockHeader:disabled { cursor: default; opacity: 0.6; }
-.dshm-dockTitle { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.dshm-dockTitle { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary); white-space: nowrap; }
 .dshm-dockMeta { flex: 1; min-width: 0; display: flex; gap: 8px; font-size: 11px; color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dshm-dockChevron { flex: none; display: inline-flex; color: var(--dsw-alias-label-tertiary); }
 .dshm-dockBody { border-top: 1px solid var(--dsw-alias-border-l2); padding: 8px 12px; }
 .dshm-dockEmpty { margin: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
-.dshm-dockList { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.dshm-dockList { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
 .dshm-dockItem { font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-3); border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; padding: 6px 8px; word-break: break-word; }
-.dshm-dockItemMeta { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.dshm-dockItemMeta { font-size: 11px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dshm-dockActions { display: flex; justify-content: flex-end; padding-top: 8px; }
 .dshm-refresh { border: 1px solid var(--dsw-alias-border-l2); background: none; border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 11px; color: var(--dsw-alias-label-secondary); cursor: pointer; }
 .dshm-refresh:hover:not(:disabled) { border-color: var(--dsw-alias-label-dimmed); color: var(--dsw-alias-label-primary); }
@@ -62,18 +62,10 @@ export function MemoryInjectionDock(props: MemoryDockProps): React.ReactNode {
   const { t, fetchPreview } = props
   // ponytail: 最小可视化 — 只展示 Host 计算的 “本次会注入” 列表，不做实时推送，刷新即重取
   const sessionId = (props as unknown as { useSession?: (sel: (s: { sessionId: string }) => string) => string }).useSession?.(s => s.sessionId) ?? ''
-  // useWorkspaces 是全局标准 Hook（所有 scope 可用），按当前会话归属解析 workspace path
-  const useWorkspaces = (props as unknown as { useWorkspaces?: (sel: (s: { items: readonly { path: string; sessionIds: readonly string[] }[] }) => unknown) => unknown }).useWorkspaces
-  const workspacesItems = useWorkspaces
-    ? (useWorkspaces((s: { items: readonly { path: string; sessionIds: readonly string[] }[] }) => s.items) as readonly { path: string; sessionIds: readonly string[] }[])
-    : []
-  const workspace = (() => {
-    if (sessionId === '') return '*'
-    for (const w of workspacesItems) {
-      if (w.sessionIds.includes(sessionId)) return w.path
-    }
-    return '*'
-  })()
+  // 直接 selector 返回 string，避免 items 数组引用抖动导致 workspace 频繁重算
+  const workspace = (props as unknown as { useWorkspaces?: (sel: (s: { items: readonly { path: string; sessionIds: readonly string[] }[] }) => string) => string }).useWorkspaces?.(
+    (s) => s.items.find((w) => w.sessionIds.includes(sessionId))?.path ?? '*',
+  ) ?? '*'
 
   const [collapsed, setCollapsed] = useState(true)
   const [preview, setPreview] = useState<InjectionPreview | null>(null)
@@ -86,7 +78,8 @@ export function MemoryInjectionDock(props: MemoryDockProps): React.ReactNode {
       const data = await fetchPreview(workspace)
       setPreview(data)
       setPhase('idle')
-    } catch {
+    } catch (error) {
+      console.error('[dsh-echo-memory] dock preview failed', error)
       setPhase('failed')
     }
   }
@@ -104,11 +97,13 @@ export function MemoryInjectionDock(props: MemoryDockProps): React.ReactNode {
   // 无数据时仍保留头部以体现 “透明”：用户能看到 “暂无注入” 而非 “功能消失”
   const headerCount = phase === 'loading'
     ? t('dock.loading')
-    : !enabled
-      ? t('dock.disabled')
-      : items.length > 0
-        ? t('dock.count').replaceAll('{n}', String(items.length))
-        : t('dock.empty')
+    : phase === 'failed'
+      ? t('dock.failed')
+      : !enabled
+        ? t('dock.disabled')
+        : items.length > 0
+          ? t('dock.count').replaceAll('{n}', String(items.length))
+          : t('dock.empty')
 
   return (
     <section className="dshm-dock" aria-label={t('dock.title')}>

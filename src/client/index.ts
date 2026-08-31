@@ -111,9 +111,14 @@ async function invokeStats(ctx: ClientContext): Promise<MemoryStatsPayload> {
   return { injections: { requests, withContent }, memories }
 }
 
-/** 拉取本会话会注入的记忆预览（按当前工作区 + 设置）。 */
-async function invokePreview(ctx: ClientContext, workspace: string): Promise<InjectionPreview> {
-  const value = await rpcCall(ctx, MEMORY_PREVIEW_ENDPOINT, { workspace })
+/** 拉取本会话会注入的记忆预览（走 webServer 直连，绕过 connection 单拦截器限制）。 */
+async function invokePreview(_ctx: ClientContext, workspace: string): Promise<InjectionPreview> {
+  const res = await fetch(`/api/dsh-echo-memory/preview?workspace=${encodeURIComponent(workspace)}`, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  })
+  if (!res.ok) throw new Error(`preview fetch failed HTTP ${res.status}`)
+  const value = await res.json() as unknown
   const enabled = (value as { readonly enabled?: unknown }).enabled
   const ws = (value as { readonly workspace?: unknown }).workspace
   const limit = (value as { readonly limit?: unknown }).limit

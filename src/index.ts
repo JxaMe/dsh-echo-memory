@@ -10,10 +10,10 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import '@deepseek-ai/dsh-session'
 import s from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 // Type-only：pull `ctx.connection` 的 Context merge 与 RPC 类型（host 侧通道注册）。
 import type { HostConnectionRpc } from '@deepseek-ai/dsh-client-connection'
@@ -115,6 +115,7 @@ export default class MemoryService extends Service {
     })
     // 浏览器卡片 RPC（彻底删除 + 统计）通道（官方 gateway 同款 intercept 模式）。
     this.registerCardRpc(ctx)
+    this.registerPreviewRoute(ctx)
   }
 
   /** 打开领域并注册全部能力；任何一步失败都会让插件加载失败（配置错误响亮）。 */
@@ -174,13 +175,13 @@ export default class MemoryService extends Service {
     return { injections: store.injectionStats, memories: store.liveCount() }
   }
 
-  /** 注册卡片 RPC（彻底删除 + 统计 + 注入预览）：alpha.2 起 intercept 仅 3 参，无 authority 选项 */
+  /** 注册卡片 RPC（彻底删除 + 统计） */
   private registerCardRpc(ctx: Context): void {
     ctx.inject(['connection'], (connectionCtx) => {
-      connectionCtx.connection.rpc.intercept(
+      return this.ctx.effect(() => connectionCtx.connection.rpc.intercept(
         '/api',
-        endpoint => endpoint === MEMORY_PURGE_ENDPOINT || endpoint === MEMORY_STATS_ENDPOINT || endpoint === MEMORY_PREVIEW_ENDPOINT,
-        async (endpoint, payload, _signal) => {
+        endpoint => endpoint === MEMORY_PURGE_ENDPOINT || endpoint === MEMORY_STATS_ENDPOINT,
+        async (endpoint, _payload, _signal) => {
           const wrap = (value: unknown) => ({ ok: true, value } as const)
           try {
             if (endpoint === MEMORY_PURGE_ENDPOINT) {
@@ -188,9 +189,6 @@ export default class MemoryService extends Service {
             }
             if (endpoint === MEMORY_STATS_ENDPOINT) {
               return wrap(this.memoryStats())
-            }
-            if (endpoint === MEMORY_PREVIEW_ENDPOINT) {
-              return wrap(this.injectionPreview(payload))
             }
             return { ok: false, error: { code: 'internal', message: `unknown endpoint: ${endpoint}`, details: {} } } as const
           } catch (error) {
@@ -204,7 +202,42 @@ export default class MemoryService extends Service {
             } as const
           }
         },
-      )
+      ), 'dsh-echo-memory intercept')
+    })
+  }
+
+  /** 注入预览的 HTTP 直连（供 dock fetch） */
+  private registerPreviewRoute(ctx: Context): void {
+    ctx.inject(['webServer'], (webCtx) => {
+      return webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/preview',
+        handler: async (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const url = new URL(req.url ?? '', `http://${req.headers.host ?? '127.0.0.1'}`)
+            let workspace = url.searchParams.get('workspace') ?? ''
+            if (req.method === 'POST') {
+              const body = await new Promise<string>((resolve) => {
+                let data = ''
+                req.on('data', (chunk: Buffer) => { data += chunk.toString() })
+                req.on('end', () => resolve(data))
+              })
+              try {
+                const parsed = JSON.parse(body) as { workspace?: unknown }
+                if (typeof parsed.workspace === 'string') workspace = parsed.workspace
+              } catch {
+                // ignore, use query
+              }
+            }
+            const preview = this.injectionPreview({ workspace })
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(preview))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      })
     })
   }
 
@@ -287,8 +320,7 @@ export default class MemoryService extends Service {
 
 /** 存储后端根目录（与 dsh 标准装配一致：`$DSH_HOME/storages`，默认 `~/.dsh/storages`）。 */
 function storageRoot(): string {
-  const home = process.env.DSH_HOME ?? homedir()
-  return join(home, 'storages')
+  return dshHomePath('storages')
 }
 
 export type { MemoryKind, MemoryRecord } from './domain.js'
