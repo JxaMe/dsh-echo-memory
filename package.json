@@ -25,7 +25,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx/esm --test \"tests/**/*.test.ts\""
+    "test": "node --import tsx/esm --test \"tests/**/*.test.ts\"",
+    "prepare": "pnpm run build"
   },
   "dsh": {
     "bundle": {
