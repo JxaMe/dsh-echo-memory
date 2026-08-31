@@ -1,0 +1,64 @@
+/**
+ * 自动捕获：监听 `session/event` 的 `user/message`，按显式「记住」句式落库。
+ * 只采用确定性规则（不调 LLM、不产生 Token 开销），句式与上限全部可配置。
+ * 配置每次事件现读（设置面板变更即时生效）。
+ * @module dsh-memory/capture
+ */
+
+import type { Session } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { GLOBAL_WORKSPACE } from './domain.js'
+import type { MemoryStore } from './store.js'
+
+/** 自动捕获配置（来自记忆设置源的既定子集，每次事件现读）。 */
+export interface CaptureConfig {
+  /** 是否启用自动捕获（面板关闭时监听器直接放行）。 */
+  readonly enabled: boolean
+  /** 触发捕获的句式列表（大小写不敏感的子串匹配，按出现顺序取第一个命中）。 */
+  readonly patterns: readonly string[]
+  /** 每个运行期会话 id 的自动捕获条数上限。 */
+  readonly maxPerSession: number
+}
+
+/**
+ * 构造捕获监听器。返回的 handler 可能抛错（store 未就绪等），
+ * 由注册方用 `ctx.on` 挂载；内部捕获保存失败仅告警，不打断事件流。
+ * @param config - 每次事件现读的捕获配置（面板变更即时生效）。
+ * @param store - 已就绪的仓储。
+ */
+export function createCaptureHandler(
+  config: () => CaptureConfig,
+  store: MemoryStore,
+): (session: Session, event: SessionEvent) => void {
+  const counts = new Map<string, number>()
+  return (session, event) => {
+    if (event.type !== 'user/message' || event.data.source.kind !== 'user') return
+    const text = event.data.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+    if (text.trim().length === 0) return
+    const cfg = config()
+    if (!cfg.enabled) return
+    const patterns = cfg.patterns
+      .map(pattern => pattern.trim().toLowerCase())
+      .filter(pattern => pattern.length > 0)
+    const normalized = text.toLowerCase()
+    for (const pattern of patterns) {
+      const index = normalized.indexOf(pattern)
+      if (index === -1) continue
+      const sessionKey = session.header.id
+      const used = counts.get(sessionKey) ?? 0
+      if (used >= cfg.maxPerSession) return
+      counts.set(sessionKey, used + 1)
+      const claimed = text.slice(index + pattern.length).replace(/^[:：,，。.\s]+/, '').trim()
+      const content = claimed.length > 0 ? claimed : text.trim()
+      const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
+      void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })
+        .catch(error => {
+          console.warn('[dsh-memory] auto capture failed; message skipped', error)
+        })
+      return
+    }
+  }
+}
