@@ -35,7 +35,7 @@ function ensureDockStyles(): void {
   const tag = document.createElement('style')
   tag.id = STYLE_ID
   tag.textContent = `
-.dshm-dock { box-sizing: border-box; flex: none; contain: content; width: 100%; max-width: 640px; margin: 0 auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
+.dshm-dock { box-sizing: border-box; flex: none; contain: content; width: calc(100% - var(--dsh-composer-side-clearance) - var(--dsh-composer-side-clearance) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset)); max-width: calc(var(--dsh-composer-card-max-width) - var(--dsh-composer-dock-inset) - var(--dsh-composer-dock-inset)); margin: 0 auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); overflow: hidden; }
 .dshm-dockHeader { width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 0; background: none; font: inherit; color: var(--dsw-alias-label-secondary); cursor: pointer; text-align: left; }
 .dshm-dockHeader:disabled { cursor: default; opacity: 0.6; }
 .dshm-dockTitle { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-primary); white-space: nowrap; }

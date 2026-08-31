@@ -88,19 +88,23 @@ export function apply(ctx: ClientContext): void {
 }
 
 /**
- * 调用 Host 的「彻底删除」RPC（官方 api-gateway 同款通道 `/api`）。
- * @param ctx - 浏览器上下文（inject 已含 connection）。
- * @returns 本次清除的墓碑条数；RPC 失败或业务失败均抛出。
+ * 调用 Host 的「彻底删除」——改走 webServer 直连
+ * @param _ctx - 未使用，保留签名
+ * @returns 本次清除的墓碑条数；失败抛出
  */
-async function invokePurge(ctx: ClientContext): Promise<number> {
-  const result = await rpcCall(ctx, MEMORY_PURGE_ENDPOINT)
-  const purged = (result as { readonly purged?: unknown }).purged
+async function invokePurge(_ctx: ClientContext): Promise<number> {
+  const res = await fetch('/api/dsh-echo-memory/purge', { method: 'POST', headers: { 'Accept': 'application/json' } })
+  if (!res.ok) throw new Error(`purge fetch failed HTTP ${res.status}`)
+  const value = await res.json() as unknown
+  const purged = (value as { readonly purged?: unknown }).purged
   return typeof purged === 'number' ? purged : 0
 }
 
-/** 拉取 Host 运行期统计（注入次数/命中 + 记忆条数）；失败抛出。 */
-async function invokeStats(ctx: ClientContext): Promise<MemoryStatsPayload> {
-  const value = await rpcCall(ctx, MEMORY_STATS_ENDPOINT)
+/** 拉取 Host 运行期统计（注入次数/命中 + 记忆条数）——改走 webServer 直连 */
+async function invokeStats(_ctx: ClientContext): Promise<MemoryStatsPayload> {
+  const res = await fetch('/api/dsh-echo-memory/stats', { method: 'GET', headers: { 'Accept': 'application/json' } })
+  if (!res.ok) throw new Error(`stats fetch failed HTTP ${res.status}`)
+  const value = await res.json() as unknown
   const injections = (value as { readonly injections?: unknown }).injections
   const memories = (value as { readonly memories?: unknown }).memories
   const requests = (injections as { readonly requests?: unknown } | undefined)?.requests

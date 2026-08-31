@@ -206,10 +206,11 @@ export default class MemoryService extends Service {
     })
   }
 
-  /** 注入预览的 HTTP 直连（供 dock fetch） */
+  /** 注入预览/统计/墓碑清理的 HTTP 直连（供 card/dock fetch，绕过 connection 单拦截器） */
   private registerPreviewRoute(ctx: Context): void {
     ctx.inject(['webServer'], (webCtx) => {
-      return webCtx.webServer.register({
+      const regs: Array<() => void> = []
+      regs.push(webCtx.webServer.register({
         kind: 'exact',
         path: '/api/dsh-echo-memory/preview',
         handler: async (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
@@ -237,7 +238,35 @@ export default class MemoryService extends Service {
             res.end(JSON.stringify({ error: String(error) }))
           }
         },
-      })
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/stats',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(this.memoryStats()))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/purge',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const purged = await this.purgeTombstones()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ purged }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      return () => { for (const dispose of regs) dispose() }
     })
   }
 
