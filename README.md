@@ -196,75 +196,37 @@ interface MemoryRecord {
 
 ## 🔧 安装
 
-> 以下以 web profile 为例。其他 profile（headless 等）步骤相同，把 `web` 换成对应 profile 名即可。
+> 以下以 web profile 为例。其他 profile（headless 等）步骤相同，把 `web` 换成对应 profile 名即可。已安装 DSH 且 `dsh` CLI 可用；**不需要本地 Node / pnpm**——构建由安装过程自动完成。
 
-### 前置条件
+### 方式 A：一条命令
 
-- 已安装 DSH 且 `dsh` CLI 可用（`$DSH_HOME` 默认 `~/.dsh`）；
-- **不需要本地 Node / pnpm** —— 构建由 GitHub Actions 自动完成，安装用现成构建产物。
-
-### 安装源说明
-
-`dsh plugin --profile web add <参数>` 会在 profile 目录内转发给 pnpm，`<参数>` 的形态决定从哪安装：
-
-| 参数 | pnpm 语义 | 本插件现状 |
-| --- | --- | --- |
-| `dsh-echo-memory`（裸包名） | 从 **npm registry** 安装 | ⛔ 尚未发布 npm，装不到 |
-| `./dsh-echo-memory-0.1.0.tgz`（文件路径） | `file:` 依赖（复制安装） | ✅ 发布形态，见第 1 步 |
-| `/path/to/dsh-echo-memory`（目录路径） | `link:` 依赖（源码直连，改代码重启即生效） | ✅ 本地迭代用 |
-| `github:owner/dsh-echo-memory` | 从 git 拉取并跑 `prepare` 自动构建 | ⏳ 仓库推送后可用 |
-
-> 想「直接裸包名安装」的前提是把包发布到 npm——GitHub 不参与裸名解析。
-
-### 第 1 步：获取构建产物
-
-从仓库的 **GitHub Releases** 页面下载最新 `dsh-echo-memory-<版本>.tgz`（推送 `v*` 标签即触发自动构建并发布，见下方「自动构建」）。
-
-> 想在源码目录上直接迭代（改完插件代码重启即生效）的开发者，可跳过 tgz，先本地 `pnpm install && pnpm run build`，再 `dsh plugin --profile web add /path/to/dsh-echo-memory`（profile 内建立 `link:` 依赖）；本节其余步骤不变。
-
-### 第 2 步：注册为 profile 依赖
+复制并执行（自动完成：拉取源码 → `prepare` 构建 → 注册依赖 → 加入 bundles 装配）：
 
 ```sh
-dsh plugin --profile web add ./dsh-echo-memory-0.1.0.tgz
+dsh plugin --profile web add github:JxaMe/dsh-echo-memory
 ```
 
-该命令在 profile 目录内转发给 pnpm：把插件写入 `~/.dsh/profiles/web/package.json` 的 dependencies 并装入 node_modules。
+**首次执行的一次性提示**：DSH 的构建安全策略会要求显式许可——把报错信息里打印的 `allowBuilds` 条目（形如 `dsh-echo-memory@https://codeload.github.com/...: true`）追加到 `~/.dsh/profiles/web/pnpm-workspace.yaml` 的 `allowBuilds:` 段，然后重跑上面同一条命令即成功。
 
-### 第 3 步：加入 bundles 组合（关键，手动）
+完成后重启使生效：`dsh-web restart`，然后按下文「验证生效」检查三点。
 
-编辑 `~/.dsh/profiles/web/package.json`，把 `"dsh-echo-memory"` **追加进 `dsh.profile.bundles` 数组末尾**：
+### 方式 B：让 AI 安装
 
-```json
-{
-  "dsh": {
-    "profile": {
-      "bundles": [
-        "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app",
-        "其他已有插件……",
-        "dsh-echo-memory"
-      ]
-    }
-  }
-}
-```
+复制以下提示词发给你的 AI 助手（DSH、Claude、Cursor 等均可），它负责执行与核验：
 
-> ⚠️ 为什么必须手动加：DSH 的组合器按 `bundles` 数组顺序把各插件的 patch 层叠加到空条目列表上——**只装依赖、不进 bundles，等于没装**。排在末尾即可（本插件依赖的 `storageDomain` / `systemPrompt` / `tools` 服务由前面的 base 层提供）。
+````text
+请帮我安装 dsh-echo-memory 插件（DeepSeek Harness 跨会话记忆插件）到 web profile：
 
-### 第 4 步：校验组合并重启
+1. 在终端执行：dsh plugin --profile web add github:JxaMe/dsh-echo-memory
+2. 若因构建许可失败，按报错提示把 allowBuilds 条目加入 ~/.dsh/profiles/web/pnpm-workspace.yaml 后重试同一条命令；
+3. 确认 node_modules/dsh-echo-memory/lib/ 存在（index.js 与 client.js，构建产物）；
+4. 确认 ~/.dsh/profiles/web/package.json 的 dsh.profile.bundles 数组已含 "dsh-echo-memory"；
+5. 重启 web 服务（dsh-web restart，会中断当前会话）后，确认日志出现 [dsh-echo-memory] loaded，且 WebUI 设置 → 插件（第一个「插件」导航）→ 插件配置 出现「记忆（dsh-echo-memory）」卡片。
 
-```sh
-# 校验：组合树里应出现 memory 行
-dsh --profile web --dump-config | grep -A1 'dsh-echo-memory'
-# 期望输出：
-#   - id: memory
-#     name: dsh-echo-memory
+完成后向我报告每步结果，有任何一步失败就停下来说明原因。
+````
 
-# 重启 web 服务使插件生效（会中断当前所有会话）
-dsh-web restart
-```
-
-### 第 5 步：验证生效
+### 验证生效
 
 依次检查三点：
 
@@ -274,6 +236,8 @@ dsh-web restart
 3. **工具**：新会话让 agent「用 memory_search 搜一下任意词」，工具应可调用。
 
 > 💡 不想动主服务时，可先起独立验证实例：`dsh --profile web --port 3999 --no-open`，按上述三点在该实例验证。
+
+> 💡 开发迭代（改插件源码重启即生效）用 `dsh plugin --profile web add /path/to/dsh-echo-memory`（`link:` 依赖），见「开发」一节。
 
 ### 自动构建（GitHub Actions）
 
@@ -287,23 +251,6 @@ dsh-web restart
 **流水线**：`pnpm install --frozen-lockfile` → `typecheck`（tsc 严格模式）→ `test`（21 条单测）→ `build`（两段式：tsc → `lib/types/`，tsdown → `lib/index.js` + `lib/client.js`，与本地一致）→ `pnpm pack` 产出 `dsh-echo-memory-<版本>.tgz`。
 
 **产物内容**：`lib/` + `cordis.patch.yml` + `README.md`（由 package.json 的 `files` 字段限定）——即安装所需的完整文件集。本地开发仍可随时手动 `pnpm run build`（见「开发」一节）。
-
-### 发版规律（semver，0.x 阶段）
-
-| 改动类型 | 版本变化 | 示例 |
-| --- | --- | --- |
-| **feat**（新功能：新工具/新设置/新行为） | minor +1 | 0.1.0 → 0.2.0 |
-| **fix**（bug 修复） | patch +1 | 0.2.0 → 0.2.1 |
-| **refactor/docs/test/chore**（行为不变） | 不升，随下次发布 | — |
-| **breaking**（数据格式/工具签名/设置键含义破坏） | 0.x 阶段也直接 minor +1，Release notes 显著标注迁移说明 | 0.2.0 → 0.3.0 |
-
-约定：
-
-- **版本唯一源 = `package.json` 的 `version`**；tag 必须为 `v<version>` 且一致——workflow 已内置校验，不一致直接失败。
-- 发布时机：一个 feat 完整落地即自然节点，不必每次 commit 都发。
-- Release notes 规律：**breaking 置顶（迁移说明）→ feat 新功能 → fix 修复**（以 `git log --reverse` 做底稿润色）。
-- 何时 1.0.0：功能稳定 + 有真实用户跑一段时间 + 外部 API（`ctx.memory` 服务、`memory_*` 工具）承诺稳定。
-- 发版动作：改 `version` → `git tag v<version> && git push origin v<version>` → Actions 自动构建发布。
 
 ---
 
