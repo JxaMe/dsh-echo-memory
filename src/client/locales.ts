@@ -40,6 +40,15 @@ export const zh = {
   'status.readOnly': '本部署的设置为只读。',
   'stats.line': '注入 {hits}/{requests} 次（{rate}%），记忆 {memories} 条',
   'stats.failed': '统计加载失败。',
+  'dock.title': '本次注入的记忆',
+  'dock.empty': '暂无注入（当前工作区无可用记忆，或已超过 90 天未更新）',
+  'dock.disabled': '注入已关闭（可在记忆设置中开启）',
+  'dock.loading': '加载中…',
+  'dock.failed': '加载失败',
+  'dock.refresh': '刷新',
+  'dock.count': '已注入 {n} 条',
+  'dock.usage': '{used} / {max} 字符',
+  'dock.workspace': '工作区：{workspace}',
 } satisfies Record<string, string>
 
 /** `settings.memory` 命名空间的键并集。 */
@@ -85,4 +94,13 @@ export const en = {
   'status.readOnly': 'This deployment stores settings read-only.',
   'stats.line': 'Injected {hits}/{requests} times ({rate}%), {memories} memories',
   'stats.failed': 'Failed to load stats.',
+  'dock.title': 'Injected memories',
+  'dock.empty': 'No injected memories (no available memories for this workspace, or stale >90 days)',
+  'dock.disabled': 'Injection disabled (enable in Memory settings)',
+  'dock.loading': 'Loading…',
+  'dock.failed': 'Failed to load',
+  'dock.refresh': 'Refresh',
+  'dock.count': '{n} injected',
+  'dock.usage': '{used} / {max} chars',
+  'dock.workspace': 'Workspace: {workspace}',
 } satisfies Record<MemoryKey, string>

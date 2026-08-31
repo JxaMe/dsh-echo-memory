@@ -69,6 +69,7 @@ declare module '@deepseek-ai/cordis' {
  */
 const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
 const MEMORY_STATS_ENDPOINT = 'dsh-echo-memory/stats'
+const MEMORY_PREVIEW_ENDPOINT = 'dsh-echo-memory/injection-preview'
 
 /** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
 export default class MemoryService extends Service {
@@ -173,13 +174,13 @@ export default class MemoryService extends Service {
     return { injections: store.injectionStats, memories: store.liveCount() }
   }
 
-  /** 注册卡片 RPC（彻底删除 + 统计）：alpha.2 起 intercept 仅 3 参，无 authority 选项 */
+  /** 注册卡片 RPC（彻底删除 + 统计 + 注入预览）：alpha.2 起 intercept 仅 3 参，无 authority 选项 */
   private registerCardRpc(ctx: Context): void {
     ctx.inject(['connection'], (connectionCtx) => {
       connectionCtx.connection.rpc.intercept(
         '/api',
-        endpoint => endpoint === MEMORY_PURGE_ENDPOINT || endpoint === MEMORY_STATS_ENDPOINT,
-        async (endpoint, _payload, _signal) => {
+        endpoint => endpoint === MEMORY_PURGE_ENDPOINT || endpoint === MEMORY_STATS_ENDPOINT || endpoint === MEMORY_PREVIEW_ENDPOINT,
+        async (endpoint, payload, _signal) => {
           const wrap = (value: unknown) => ({ ok: true, value } as const)
           try {
             if (endpoint === MEMORY_PURGE_ENDPOINT) {
@@ -187,6 +188,9 @@ export default class MemoryService extends Service {
             }
             if (endpoint === MEMORY_STATS_ENDPOINT) {
               return wrap(this.memoryStats())
+            }
+            if (endpoint === MEMORY_PREVIEW_ENDPOINT) {
+              return wrap(this.injectionPreview(payload))
             }
             return { ok: false, error: { code: 'internal', message: `unknown endpoint: ${endpoint}`, details: {} } } as const
           } catch (error) {
@@ -202,6 +206,36 @@ export default class MemoryService extends Service {
         },
       )
     })
+  }
+
+  /** 注入预览：按当前设置计算本工作区会注入的记忆（供会话 dock 可视化）。 */
+  private injectionPreview(payload: unknown): {
+    readonly enabled: boolean
+    readonly workspace: string
+    readonly limit: number
+    readonly maxChars: number
+    readonly items: readonly { readonly id: string; readonly kind: string; readonly content: string; readonly tags: readonly string[]; readonly strength: number; readonly workspace: string }[]
+    readonly text: string
+  } {
+    const raw = (payload as { readonly workspace?: unknown } | null)?.workspace
+    const requested = typeof raw === 'string' ? raw.trim() : ''
+    const workspace = requested === '' ? GLOBAL_WORKSPACE : requested
+    const settings = this.readSettings()
+    if (!settings.injectEnabled) {
+      return { enabled: false, workspace, limit: settings.injectLimit, maxChars: settings.injectMaxChars, items: [], text: '' }
+    }
+    const store = this.requireStore()
+    const candidates = store.rankedForInjection(workspace, settings.injectLimit)
+    const items = candidates.map(({ record }) => ({
+      id: record.id,
+      kind: record.kind,
+      content: record.content,
+      tags: [...record.tags] as readonly string[],
+      strength: record.strength,
+      workspace: record.workspace,
+    }))
+    const text = store.recallText({ workspace, limit: settings.injectLimit, maxChars: settings.injectMaxChars })
+    return { enabled: true, workspace, limit: settings.injectLimit, maxChars: settings.injectMaxChars, items, text }
   }
 
   private registerTools(): void {
