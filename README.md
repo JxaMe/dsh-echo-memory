@@ -229,19 +229,6 @@ interface MemoryRecord {
 
 > 💡 开发迭代（改插件源码重启即生效）用 `dsh plugin --profile web add /path/to/dsh-echo-memory`（`link:` 依赖），见「开发」一节。
 
-### 自动构建（GitHub Actions）
-
-仓库内置 `.github/workflows/release.yml`，推送到 GitHub 后自动构建：
-
-| 触发 | 行为 |
-| --- | --- |
-| 推送 `v*` 标签（如 `v0.1.0`） | 构建 + 测试 + 打包，tgz 自动上传为该标签的 **Release 附件** |
-| Actions 页手动触发（`workflow_dispatch`） | 只构建并产出 artifact，不发布 |
-
-**流水线**：`pnpm install --frozen-lockfile` → `typecheck`（tsc 严格模式）→ `test`（21 条单测）→ `build`（两段式：tsc → `lib/types/`，tsdown → `lib/index.js` + `lib/client.js`，与本地一致）→ `pnpm pack` 产出 `dsh-echo-memory-<版本>.tgz`。
-
-**产物内容**：`lib/` + `cordis.patch.yml` + `README.md`（由 package.json 的 `files` 字段限定）——即安装所需的完整文件集。本地开发仍可随时手动 `pnpm run build`（见「开发」一节）。
-
 ---
 
 ## ⚙️ 配置
