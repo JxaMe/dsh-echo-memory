@@ -20,6 +20,12 @@ export const DEFAULT_CAPTURE_PATTERNS: readonly string[] = Object.freeze([
   '请记住', '记住：', '记住:', 'remember that', 'please remember', 'remember:',
 ])
 
+/** 删除模式封闭词表：`tombstone` 墓碑机制（标记删除，可彻底清除）/ `purge` 彻底删除（立即物理删除）。 */
+export const DELETION_MODES = ['tombstone', 'purge'] as const
+
+/** 删除一条记忆的行为模式。 */
+export type DeletionMode = (typeof DELETION_MODES)[number]
+
 /** 用户在设置面板可编辑的记忆行为子集（其余参数留在 cordis.yml 行配置）。 */
 export interface MemorySettings {
   /** 是否向每次模型请求注入记忆上下文。 */
@@ -34,6 +40,8 @@ export interface MemorySettings {
   readonly capturePatterns: string[]
   /** 每个运行期会话的自动捕获条数上限。 */
   readonly captureMaxPerSession: number
+  /** 删除记忆的行为模式（默认墓碑机制）。 */
+  readonly deletionMode: DeletionMode
 }
 
 /** 记忆设置分节的 schema；缺省值与插件 Config 的对应字段一致。 */
@@ -44,4 +52,5 @@ export const MEMORY_SETTINGS_SCHEMA: s<MemorySettings> = s.object({
   captureEnabled: s.boolean().default(true),
   capturePatterns: s.array(s.string()).default([...DEFAULT_CAPTURE_PATTERNS]),
   captureMaxPerSession: s.number().step(1).min(1).max(1000).default(20),
+  deletionMode: s.union(DELETION_MODES).default('tombstone'),
 })

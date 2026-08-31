@@ -15,6 +15,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type { MemoryCardFace, MemoryCardField, MemoryCardFieldState, MemoryCardState } from './card-controller.ts'
 import type { MemoryCardTextField } from './card-controller.ts'
+import type { DeletionMode } from '../settings.ts'
 import type { MemoryKey } from './locales.ts'
 
 /** 卡片组件 props：槽位运行时份额 + locale 份额 + 插槽 inject 面。 */
@@ -72,6 +73,10 @@ textarea.dshm-input { height: auto; min-height: 72px; padding: 8px 12px; resize:
 .dshm-save { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-layer-3); }
 .dshm-btn:disabled { opacity: 0.4; cursor: default; }
 .dshm-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+.dshm-purge { border-top: 1px solid var(--dsw-alias-border-l2); }
+.dshm-purgeRow { display: flex; align-items: center; gap: 12px; }
+.dshm-danger { border-color: var(--dsw-alias-label-error); color: var(--dsw-alias-label-error); background: none; }
+.dshm-danger:hover:not(:disabled) { background: var(--dsw-alias-label-error); color: var(--dsw-alias-bg-layer-3); }
 `
   document.head.appendChild(tag)
 }
@@ -184,6 +189,49 @@ function MemoryBooleanField(props: {
   )
 }
 
+/** 选项字段行：下拉选择（两个删除模式之一）+ 提示。 */
+function MemoryChoiceField(props: {
+  t: (key: MemoryKey) => string
+  id: string
+  label: string
+  hint: string
+  value: DeletionMode
+  overridden: boolean
+  disabled: boolean
+  options: readonly { value: DeletionMode; label: string }[]
+  onChoose: (value: DeletionMode) => void
+  onReset: () => void
+}) {
+  const { t } = props
+  return (
+    <div className="dshm-field">
+      <OverrideHead
+        htmlFor={props.id}
+        label={props.label}
+        overriddenLabel={t('field.overridden')}
+        resetLabel={t('field.reset')}
+        overridden={props.overridden}
+        onReset={props.onReset}
+      />
+      <select
+        id={props.id}
+        className="dshm-input"
+        value={props.value}
+        disabled={props.disabled}
+        onChange={(event) => {
+          const value = event.target.value
+          if (value === 'tombstone' || value === 'purge') props.onChoose(value)
+        }}
+      >
+        {props.options.map(option => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+      <p className="dshm-hint">{props.hint}</p>
+    </div>
+  )
+}
+
 /**
  * 渲染 dsh-echo-memory 设置卡片（默认折叠，header 点击展开；草稿独立于折叠保留）。
  * @param props - locale 文案、卡片状态快照（useMemoryCard）与表单动作。
@@ -287,6 +335,53 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
               onEdit={(text) => { props.edit('captureMaxPerSession', text) }}
               onReset={props.resetField}
             />
+            <MemoryChoiceField
+              t={t}
+              id="dsh-echo-memory-deletion-mode"
+              label={t('field.deletionMode')}
+              hint={t('field.deletionMode.hint')}
+              value={state.deletionMode.value}
+              overridden={state.deletionMode.overridden}
+              disabled={!writable}
+              options={[
+                { value: 'tombstone', label: t('option.deletionMode.tombstone') },
+                { value: 'purge', label: t('option.deletionMode.purge') },
+              ]}
+              onChoose={(value) => { props.choose('deletionMode', value) }}
+              onReset={() => { props.resetField('deletionMode') }}
+            />
+            {state.deletionMode.value === 'tombstone'
+              ? (
+                <div className="dshm-field dshm-purge">
+                  <p className="dshm-hint">{t('field.purge.hint')}</p>
+                  <div className="dshm-purgeRow">
+                    <button
+                      type="button"
+                      className="dshm-btn dshm-danger"
+                      disabled={!writable || state.purge.phase === 'busy'}
+                      onClick={() => {
+                        if (!window.confirm(t('action.purge.confirm'))) return
+                        void props.purgeTombstones()
+                      }}
+                    >
+                      {state.purge.phase === 'busy' ? t('action.purge.busy') : t('action.purge')}
+                    </button>
+                    {state.purge.phase === 'done'
+                      ? (
+                        <p className="dshm-hint" role="status">
+                          {state.purge.purged > 0
+                            ? t('status.purge.done').replaceAll('{n}', String(state.purge.purged))
+                            : t('status.purge.empty')}
+                        </p>
+                      )
+                      : null}
+                    {state.purge.phase === 'failed'
+                      ? <p className="dshm-invalid" role="status">{t('status.purge.failed')}</p>
+                      : null}
+                  </div>
+                </div>
+              )
+              : null}
             <div className="dshm-footer">
               {state.failed ? <p className="dshm-failed" role="status">{t('status.failed')}</p> : null}
               <button

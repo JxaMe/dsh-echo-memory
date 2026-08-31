@@ -8,6 +8,7 @@
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { MemoryKind, MemoryRecord, MemorySource } from './domain.js'
 import { GLOBAL_WORKSPACE } from './domain.js'
+import type { DeletionMode } from './settings.js'
 
 /** 一次保存的写限值（由插件配置解析而来）。 */
 export interface StoreLimits {
@@ -144,8 +145,8 @@ export class MemoryStore {
   ) {}
 
   /**
-   * 保存一条记忆。同工作区 + 同类型 + 同正文命中既有记录时强化（strength+1、updatedAt 刷新），
-   * 否则新建记录。
+   * 保存一条记忆。同工作区 + 同类型 + 同正文命中**未删除**的既有记录时强化
+   * （strength+1、updatedAt 刷新），否则新建记录（墓碑记录不参与查重：删除后重新保存 = 新起点）。
    * @param input - 归一化前的保存输入（workspace 空串按 `*` 处理）。
    * @param now - 时间基准，缺省当前时间（测试注入）。
    * @returns 保存结果；正文不含非空白字符时抛 TypeError。
@@ -160,6 +161,7 @@ export class MemoryStore {
     const tags = normalizeTags(input.tags, this.limits.tagsMax)
     const source = input.source ?? 'agent'
     for (const [id, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) continue
       if (record.workspace === workspace && record.kind === kind && record.content === content) {
         const next: MemoryRecord = {
           ...record,
@@ -186,9 +188,34 @@ export class MemoryStore {
     return { existed: false, id, strength: 1, workspace }
   }
 
-  /** 删除一条记忆；记录不存在时 resolve 为 false。 */
-  async forget(id: string): Promise<boolean> {
-    return this.table.delete(id)
+  /**
+   * 删除一条记忆。按模式：`purge` 物理删除；`tombstone` 打墓碑标记
+   * （检索/注入不可见，purgeDeleted 时物理清除）。已删除/不存在的记录 resolve 为 false。
+   * @param id - 记录 id。
+   * @param mode - 删除行为模式（调用方现读设置传入）。
+   * @param now - 时间基准，缺省当前时间（测试注入）。
+   */
+  async forget(id: string, mode: DeletionMode, now: number = Date.now()): Promise<boolean> {
+    if (mode === 'purge') return this.table.delete(id)
+    const record = this.table.get(id)
+    if (record === undefined || record.deletedAt !== undefined) return false
+    await this.table.put(id, { ...record, deletedAt: now })
+    return true
+  }
+
+  /**
+   * 彻底清除全部墓碑记录（物理删除 + 逐条持久化）。设置面板「彻底删除」按钮的后端动作。
+   * @returns 本次清除的墓碑条数（0 表示没有待清除的墓碑）。
+   */
+  async purgeDeleted(): Promise<number> {
+    const doomed: string[] = []
+    for (const [id, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) doomed.push(id)
+    }
+    for (const id of doomed) {
+      await this.table.delete(id)
+    }
+    return doomed.length
   }
 
   /**
@@ -202,6 +229,7 @@ export class MemoryStore {
     const now = Date.now()
     const hits: SearchHit[] = []
     for (const [, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) continue
       if (options.workspace !== undefined && record.workspace !== options.workspace) continue
       if (options.kind !== undefined && record.kind !== options.kind) continue
       const word = keywordScore(record, options.query ?? '')
@@ -222,6 +250,7 @@ export class MemoryStore {
   rankedForInjection(workspace: string, limit: number, now: number = Date.now()): RecallCandidate[] {
     const candidates: RecallCandidate[] = []
     for (const [, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) continue
       if (record.workspace !== workspace && record.workspace !== GLOBAL_WORKSPACE) continue
       const rank = record.strength * recencyFactor(record.updatedAt, now)
       candidates.push({ record, rank })

@@ -11,6 +11,7 @@ import { MEMORY_KINDS, agentWorkspace } from './domain.js'
 import type { MemoryKind } from './domain.js'
 import type { MemoryStore, SearchHit } from './store.js'
 import { tagSuffix } from './store.js'
+import type { DeletionMode } from './settings.js'
 
 /** 记忆类型枚举（模型可见的字符串字面量）。 */
 const KIND_OPTIONS: readonly MemoryKind[] = [...MEMORY_KINDS]
@@ -61,8 +62,13 @@ function toOutputItem({ record }: SearchHit): SearchOutputItem {
  * 构造三个记忆工具。
  * @param store - 已就绪的记忆仓储（execute 时保证已打开）。
  * @param defaultWorkspace - 无会话 cwd 时的归属工作区，缺省 `*`。
+ * @param readDeletionMode - 现读删除模式（设置面板保存即生效）。
  */
-export function memoryTools(store: MemoryStore, defaultWorkspace: string): readonly ToolDefinition[] {
+export function memoryTools(
+  store: MemoryStore,
+  defaultWorkspace: string,
+  readDeletionMode: () => DeletionMode,
+): readonly ToolDefinition[] {
   const save = defineTool({
     name: 'memory_save',
     description:
@@ -190,7 +196,9 @@ export function memoryTools(store: MemoryStore, defaultWorkspace: string): reado
 
   const forget = defineTool({
     name: 'memory_forget',
-    description: '删除一条记忆（按 id）。id 来自 memory_search / memory_save 的结果；仅在用户明确要求删除时使用。',
+    description:
+      '删除一条记忆（按 id，行为随设置面板的「删除模式」：墓碑机制 = 标记删除并立即可见性消失，'
+      + '彻底删除 = 立即物理删除）。id 来自 memory_search / memory_save 的结果；仅在用户明确要求删除时使用。',
     parameters: {
       id: {
         type: 'string',
@@ -212,7 +220,7 @@ export function memoryTools(store: MemoryStore, defaultWorkspace: string): reado
       }],
     },
     async execute(args) {
-      return { removed: await store.forget(args.id) }
+      return { removed: await store.forget(args.id, readDeletionMode()) }
     },
   })
 

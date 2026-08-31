@@ -13,6 +13,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only：pull `settings.plugin.item` 的 SlotMap 声明（本卡片注册的槽位）。
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only：pull client 侧 `ctx.connection` 句柄类型（值不入包）。
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // 与 Host 共享的字段类型（type-only，擦除后不产生运行时依赖）。
 import type { MemorySettings } from '../settings.ts'
 import { MemoryCardController } from './card-controller.ts'
@@ -35,6 +37,12 @@ const MEMORY_SETTINGS_NS_VALUE = 'memory'
 /** 本卡片的 locale 命名空间。 */
 const LOCALE_NS = 'settings.memory'
 
+/**
+ * 「彻底删除」RPC endpoint（与 Host 注册拼写一致；两侧各自拼写，不产生跨半侧值依赖）。
+ * 无返回值即为空载荷；call 失败（RPC 层）在此抛出，卡片显示失败态。
+ */
+const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
+
 /** 必需服务：槽位注册、文案、连接载体、设置 scope 与远程失效转发。 */
 export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
 
@@ -46,6 +54,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-echo-memory: settings card dictionaries')
   const controller = new MemoryCardController(
     ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS_VALUE }),
+    () => invokePurge(ctx),
   )
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
@@ -55,6 +64,24 @@ export function apply(ctx: ClientContext): void {
   }, MemoryPluginCard))
 }
 
-export type { MemoryCardFace, MemoryCardState } from './card-controller.ts'
+/**
+ * 调用 Host 的「彻底删除」RPC（官方 api-gateway 同款通道 `/api`）。
+ * @param ctx - 浏览器上下文（inject 已含 connection）。
+ * @returns 本次清除的墓碑条数；RPC 失败或业务失败均抛出。
+ */
+async function invokePurge(ctx: ClientContext): Promise<number> {
+  const connection = ctx.get('connection') as ConnectionHandle | undefined
+  if (connection === undefined) {
+    throw new Error('dsh-echo-memory: connection service unavailable')
+  }
+  const result = await connection.rpc.call('/api', MEMORY_PURGE_ENDPOINT, {})
+  if (!result.ok) {
+    throw new Error(`dsh-echo-memory: purge rejected by host: ${result.error.message}`)
+  }
+  const purged = (result.value as { readonly purged?: unknown }).purged
+  return typeof purged === 'number' ? purged : 0
+}
+
+export type { MemoryCardFace, MemoryCardState, MemoryCardChoiceState, MemoryPurgeState } from './card-controller.ts'
 export type { MemoryPluginCardProps } from './MemoryPluginCard.tsx'
 export type { MemoryKey } from './locales.ts'

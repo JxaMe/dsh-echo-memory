@@ -94,12 +94,44 @@ test('save 空正文与超长正文', async () => {
   assert.equal(hit.record.content.length, 500)
 })
 
-test('forget：存在删除返回 true，不存在返回 false', async () => {
+test('forget（purge 模式）：存在删除返回 true，不存在返回 false', async () => {
   const store = makeStore()
   const { id } = await store.save({ workspace: '/w', content: '将被删除' })
-  assert.equal(await store.forget(id), true)
+  assert.equal(await store.forget(id, 'purge'), true)
   assert.equal(store.search({ query: '将被删除' }).length, 0)
-  assert.equal(await store.forget(id), false)
+  assert.equal(await store.forget(id, 'purge'), false)
+})
+
+test('forget（tombstone 模式）：标记删除，检索/注入不可见，可 purge 物理清除', async () => {
+  const store = makeStore()
+  const { id } = await store.save({ workspace: '/w', content: '墓碑候选', tags: ['dep'] })
+  // 标记删除：返回 true，检索/注入全部不可见
+  assert.equal(await store.forget(id, 'tombstone', 1_000), true)
+  assert.equal(store.search({ query: '墓碑候选' }).length, 0)
+  assert.equal(store.rankedForInjection('/w', 8).length, 0)
+  assert.equal(store.recallText({ workspace: '/w', limit: 8, maxChars: 1000 }), '')
+  // 墓碑仍在表中（占位），重复删除返回 false
+  assert.equal(await store.forget(id, 'tombstone'), false)
+  // 墓碑不参与查重：重新保存同内容 = 新建
+  const again = await store.save({ workspace: '/w', content: '墓碑候选' })
+  assert.equal(again.existed, false)
+  assert.notEqual(again.id, id)
+  // purge：物理清除全部墓碑（逐条持久化），无残留
+  assert.equal(await store.purgeDeleted(), 1)
+  assert.equal(await store.purgeDeleted(), 0)
+  assert.equal(await store.forget(id, 'purge'), false)
+})
+
+test('purgeDeleted：混合表只清墓碑，返回清除数量', async () => {
+  const store = makeStore()
+  const a = await store.save({ workspace: '/w', content: '保留' })
+  const b = await store.save({ workspace: '/w', content: '删除1' })
+  const c = await store.save({ workspace: '/w', content: '删除2' })
+  await store.forget(b.id, 'tombstone')
+  await store.forget(c.id, 'tombstone')
+  assert.equal(await store.purgeDeleted(), 2)
+  assert.equal(store.search({ query: '' }).length, 1)
+  assert.equal(store.search({ query: '' })[0]?.record.id, a.id)
 })
 
 test('search：工作区/类型过滤、标签精确优先、limit 生效', async () => {

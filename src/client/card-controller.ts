@@ -11,6 +11,7 @@ import {
   type SettingsScope,
   type SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { DeletionMode } from '../settings.ts'
 import type { MemorySettings } from '../settings.ts'
 import {
   booleanDraft,
@@ -29,12 +30,16 @@ export type MemoryCardField =
   | 'captureEnabled'
   | 'capturePatterns'
   | 'captureMaxPerSession'
+  | 'deletionMode'
 
 /** 文本类字段（数字与句式，走草稿文本）。 */
-export type MemoryCardTextField = Exclude<MemoryCardField, 'injectEnabled' | 'captureEnabled'>
+export type MemoryCardTextField = Exclude<MemoryCardField, 'injectEnabled' | 'captureEnabled' | 'deletionMode'>
 
 /** 布尔类字段（复选框，草稿即布尔值）。 */
 export type MemoryCardBooleanField = 'injectEnabled' | 'captureEnabled'
+
+/** 选项类字段（选择控件，草稿即选项值）。 */
+export type MemoryCardChoiceField = 'deletionMode'
 
 /** 文本字段控件渲染状态。 */
 export interface MemoryCardFieldState {
@@ -53,6 +58,21 @@ export interface MemoryCardBooleanState {
   /** 保存是否会在用户层留下该字段。 */
   overridden: boolean
 }
+
+/** 选项字段控件渲染状态。 */
+export interface MemoryCardChoiceState {
+  /** 当前选中值。 */
+  value: DeletionMode
+  /** 保存是否会在用户层留下该字段。 */
+  overridden: boolean
+}
+
+/** 卡片「彻底删除」动作的瞬时状态。 */
+export type MemoryPurgeState =
+  | { phase: 'idle' }
+  | { phase: 'busy' }
+  | { phase: 'done'; purged: number }
+  | { phase: 'failed' }
 
 /** 卡片的完整渲染状态。 */
 export interface MemoryCardState {
@@ -74,6 +94,9 @@ export interface MemoryCardState {
   captureEnabled: MemoryCardBooleanState
   capturePatterns: MemoryCardFieldState
   captureMaxPerSession: MemoryCardFieldState
+  deletionMode: MemoryCardChoiceState
+  /** 「彻底删除」动作反馈（按钮点击后更新）。 */
+  purge: MemoryPurgeState
 }
 
 /** 注册侧 inject 面：hooks compartment（renderer 绑定 useMemoryCard）+ 表单动作。 */
@@ -86,18 +109,23 @@ export interface MemoryCardFace {
   edit: (field: MemoryCardTextField, text: string) => void
   /** 暂存一个布尔草稿。 */
   toggle: (field: MemoryCardBooleanField, checked: boolean) => void
+  /** 暂存一个选项草稿。 */
+  choose: (field: MemoryCardChoiceField, value: DeletionMode) => void
   /** 暂存清除，保存后字段回落到组合层。 */
   resetField: (field: MemoryCardField) => void
   /** 提交全部草稿；settle 时清空草稿并按 Host 接受值重播种。 */
   save: () => Promise<void>
   /** 丢弃全部草稿。 */
   discard: () => void
+  /** 彻底删除所有墓碑记忆（后端 RPC，调用方先确认）。 */
+  purgeTombstones: () => Promise<void>
 }
 
 /** 一条暂存编辑。 */
 type StagedEdit =
   | { kind: 'text'; text: string }
   | { kind: 'bool'; checked: boolean }
+  | { kind: 'choice'; value: DeletionMode }
   | { kind: 'clear' }
 
 function initial(): MemoryCardState {
@@ -114,6 +142,8 @@ function initial(): MemoryCardState {
     captureEnabled: { checked: false, overridden: false },
     capturePatterns: { text: '', overridden: false, invalid: false },
     captureMaxPerSession: { text: '', overridden: false, invalid: false },
+    deletionMode: { value: 'tombstone', overridden: false },
+    purge: { phase: 'idle' },
   }
 }
 
@@ -128,9 +158,9 @@ const textFieldCodecs: Record<MemoryCardTextField, {
   captureMaxPerSession: { parse: parseNumberField, format: numberDraft },
 }
 
-/** 文本字段：草稿 → 写入计划（undefined = 非法；布尔字段永不进入文本解析）。 */
+/** 文本字段：草稿 → 写入计划（undefined = 非法；布尔/选项字段永不进入文本解析）。 */
 function parseField(field: MemoryCardField, text: string): FieldWrite | undefined {
-  if (field === 'injectEnabled' || field === 'captureEnabled') return undefined
+  if (field === 'injectEnabled' || field === 'captureEnabled' || field === 'deletionMode') return undefined
   return textFieldCodecs[field].parse(text)
 }
 
@@ -151,8 +181,12 @@ export class MemoryCardController {
 
   /**
    * @param scope - 绑定在 `memory` 命名空间上的设置 scope。
+   * @param purgeTombstones - 彻底清除墓碑的后端动作（client 半封装 RPC；controller 保持无 ctx 依赖）。
    */
-  constructor(private readonly scope: SettingsScope<MemorySettings>) {
+  constructor(
+    private readonly scope: SettingsScope<MemorySettings>,
+    private readonly purgeTombstones: () => Promise<number>,
+  ) {
     this.store = createSnapshotStore(initial())
     scope.subscribe(() => this.reseed())
     this.reseed()
@@ -164,9 +198,11 @@ export class MemoryCardController {
       hooks: { memoryCard: this.store },
       edit: (field, text) => { this.stageText(field, text) },
       toggle: (field, checked) => { this.stageBool(field, checked) },
+      choose: (field, value) => { this.stageChoice(field, value) },
       resetField: field => { this.stageClear(field) },
       save: () => this.save(),
       discard: () => { this.discard() },
+      purgeTombstones: () => this.purge(),
     }
   }
 
@@ -180,6 +216,31 @@ export class MemoryCardController {
     this.drafts.set(field, { kind: 'bool', checked })
     this.failed = false
     this.emit()
+  }
+
+  private stageChoice(field: MemoryCardChoiceField, value: DeletionMode): void {
+    this.drafts.set(field, { kind: 'choice', value })
+    this.failed = false
+    this.emit()
+  }
+
+  /** 执行彻底删除：确认在 UI 侧；结果/失败回投影到卡片。 */
+  private async purge(): Promise<void> {
+    const current = this.store.getSnapshot()
+    if (current.purge.phase === 'busy') return
+    this.emitPurge({ phase: 'busy' })
+    try {
+      const purged = await this.purgeTombstones()
+      this.emitPurge({ phase: 'done', purged })
+    } catch (_purgeFailure) {
+      this.emitPurge({ phase: 'failed' })
+    }
+  }
+
+  private emitPurge(state: MemoryPurgeState): void {
+    this.store.update((draft) => {
+      draft.purge = state
+    })
   }
 
   private stageClear(field: MemoryCardField): void {
@@ -203,6 +264,10 @@ export class MemoryCardController {
       for (const [field, edit] of this.drafts) {
         if (edit.kind === 'bool') {
           await this.scope.set(field, edit.checked)
+          continue
+        }
+        if (edit.kind === 'choice') {
+          await this.scope.set(field, edit.value)
           continue
         }
         if (edit.kind === 'clear') {
@@ -248,6 +313,7 @@ export class MemoryCardController {
       draft.captureEnabled = next.captureEnabled
       draft.capturePatterns = next.capturePatterns
       draft.captureMaxPerSession = next.captureMaxPerSession
+      draft.deletionMode = next.deletionMode
     })
   }
 
@@ -272,6 +338,8 @@ export class MemoryCardController {
       captureEnabled: this.booleanState('captureEnabled'),
       capturePatterns: this.textState('capturePatterns'),
       captureMaxPerSession: this.textState('captureMaxPerSession'),
+      deletionMode: this.choiceState('deletionMode'),
+      purge: this.store.getSnapshot().purge,
     }
   }
 
@@ -310,6 +378,20 @@ export class MemoryCardController {
     }
   }
 
+  private choiceState(field: MemoryCardChoiceField): MemoryCardChoiceState {
+    const edit = this.drafts.get(field)
+    if (edit !== undefined && edit.kind === 'choice') {
+      return { value: edit.value, overridden: true }
+    }
+    if (edit !== undefined && edit.kind === 'clear') {
+      return { value: choiceDraft(this.fallbackValue(field)), overridden: false }
+    }
+    return {
+      value: choiceDraft(this.values?.[field]),
+      overridden: this.isOverridden(field),
+    }
+  }
+
   /** 清除草稿时的回落值：组合层 base 优先，其次当前有效值。 */
   private fallbackValue(field: MemoryCardField): unknown {
     if (this.base !== undefined && Object.prototype.hasOwnProperty.call(this.base, field)) {
@@ -326,4 +408,9 @@ export class MemoryCardController {
 /** 窄化记录值（base/user 层）。 */
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** 选项字段：存储值 → 控件值（未知值回落默认 `tombstone`，与新装缺省一致）。 */
+function choiceDraft(value: unknown): DeletionMode {
+  return value === 'purge' ? 'purge' : 'tombstone'
 }

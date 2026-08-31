@@ -13,6 +13,8 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import '@deepseek-ai/dsh-session'
 import s from '@deepseek-ai/schemastery'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
+// Type-only：pull `ctx.connection` 的 Context merge 与 RPC 类型（host 侧通道注册）。
+import type { HostConnectionRpc } from '@deepseek-ai/dsh-client-connection'
 import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
@@ -20,7 +22,8 @@ import { memoryTools } from './tools.js'
 import { createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
 import {
-  DEFAULT_CAPTURE_PATTERNS, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA, type MemorySettings,
+  DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
+  type DeletionMode, type MemorySettings,
 } from './settings.js'
 
 /** 插件配置：所有部署可调参数都经 cordis.yml 行配置提供，无硬编码 tunable。 */
@@ -45,6 +48,8 @@ export interface Config {
   readonly tagsMax: number
   /** 无会话 cwd 可归属时的默认工作区。 */
   readonly defaultWorkspace: string
+  /** 删除记忆的行为模式（默认墓碑机制）。 */
+  readonly deletionMode: DeletionMode
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -53,6 +58,13 @@ declare module '@deepseek-ai/cordis' {
     memory: MemoryService
   }
 }
+
+/**
+ * 浏览器卡片「彻底删除」按钮的 RPC endpoint（`/api` 共享通道上的 2 段式 endpoint）。
+ * 两侧拼写必须一致：host 注册与 client 调用各自拼写（跨半侧不产生值依赖，
+ * 与官方 `SHELL_NS` 约定同一理由）。
+ */
+const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
 
 /** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
 export default class MemoryService extends Service {
@@ -70,6 +82,7 @@ export default class MemoryService extends Service {
     contentMaxChars: s.number().step(1).min(20).max(2000).default(500),
     tagsMax: s.number().step(1).min(0).max(32).default(8),
     defaultWorkspace: s.string().default(GLOBAL_WORKSPACE),
+    deletionMode: s.union(DELETION_MODES).default('tombstone'),
   })
 
   private readonly config: Config
@@ -87,11 +100,13 @@ export default class MemoryService extends Service {
     this.settingsEntry = projectSettings(config)
     this.readSettings = () => this.settingsEntry
     // 设置分节：schema 默认 < 组合层 base（本行 cordis.yml 配置）< 用户分节。
-    // 消费方（注入提供方、捕获监听器）每次现读解析值，因此更改即时生效。
+    // 消费方（注入提供方、捕获监听器、删除执行）每次现读解析值，因此更改即时生效。
     installSettingsSection(ctx, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA, this.settingsEntry, {
       setSource: (current) => { this.readSettings = current },
       onChange: () => {},
     })
+    // 浏览器卡片「彻底删除」按钮的 RPC 通道（官方 gateway 同款 intercept 模式）。
+    this.registerPurgeRpc(ctx)
   }
 
   /** 打开领域并注册全部能力；任何一步失败都会让插件加载失败（配置错误响亮）。 */
@@ -128,15 +143,55 @@ export default class MemoryService extends Service {
   }
 
   /**
-   * 删除一条记忆（与 memory_forget 工具同一入口）。
+   * 删除一条记忆（与 memory_forget 工具同一入口，模式现读设置）。
    * @param id - 记录 id。
    */
   forget(id: string): Promise<boolean> {
-    return this.requireStore().forget(id)
+    return this.requireStore().forget(id, this.readSettings().deletionMode)
+  }
+
+  /**
+   * 彻底清除全部墓碑记录（浏览器卡片「彻底删除」按钮的后端动作）。
+   * @returns 本次清除的墓碑条数。
+   */
+  purgeTombstones(): Promise<number> {
+    return this.requireStore().purgeDeleted()
+  }
+
+  /** 注册「彻底删除」RPC：官方 gateway 同款 intercept 模式（通道 `/api`，authority trusted-host）。 */
+  private registerPurgeRpc(ctx: Context): void {
+    ctx.inject(['connection'], (connectionCtx) => {
+      connectionCtx.connection.rpc.intercept(
+        '/api',
+        endpoint => endpoint === MEMORY_PURGE_ENDPOINT,
+        async () => {
+          try {
+            return {
+              ok: true,
+              value: { purged: await this.purgeTombstones() },
+            } as const
+          } catch (error) {
+            return {
+              ok: false,
+              error: {
+                code: 'internal',
+                message: error instanceof Error ? error.message : String(error),
+                details: {},
+              },
+            } as const
+          }
+        },
+        { authority: 'trusted-host' },
+      )
+    })
   }
 
   private registerTools(): void {
-    for (const tool of memoryTools(this.requireStore(), this.config.defaultWorkspace)) {
+    for (const tool of memoryTools(
+      this.requireStore(),
+      this.config.defaultWorkspace,
+      () => this.readSettings().deletionMode,
+    )) {
       this.ctx.tools.register(tool)
     }
   }
@@ -183,7 +238,8 @@ export { MemoryStore } from './store.js'
 export type { SaveInput, SaveOutcome, SearchHit, SearchOptions, StoreLimits } from './store.js'
 export type { SearchOutputItem } from './tools.js'
 export {
-  MEMORY_SETTINGS_NS, MEMORY_SETTINGS_NS_VALUE, MEMORY_SETTINGS_SCHEMA, type MemorySettings,
+  DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_NS_VALUE, MEMORY_SETTINGS_SCHEMA,
+  type DeletionMode, type MemorySettings,
 } from './settings.js'
 
 /** 把插件 Config 的既定点投影为记忆设置分节（可编辑子集，数组浅拷贝防外部改写）。 */
@@ -195,5 +251,6 @@ function projectSettings(config: Config): MemorySettings {
     captureEnabled: config.captureEnabled,
     capturePatterns: [...config.capturePatterns],
     captureMaxPerSession: config.captureMaxPerSession,
+    deletionMode: config.deletionMode,
   }
 }

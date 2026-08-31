@@ -52,6 +52,8 @@ export interface MemoryRecord {
   readonly createdAt: number
   /** 最近写入/强化时间（Unix epoch 毫秒）。 */
   readonly updatedAt: number
+  /** 墓碑删除时间（Unix epoch 毫秒）；存在即已标记删除（检索/注入不可见，purge 时物理清除）。 */
+  readonly deletedAt?: number | undefined
 }
 
 const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
@@ -67,12 +69,21 @@ export const memoryRecordSchema = z.object({
   source: z.enum(MEMORY_SOURCES),
   createdAt: nonNegativeSafeInteger,
   updatedAt: nonNegativeSafeInteger,
+  // 可选字段：旧数据无此键，解读为未删除；不 bump 领域版本（向后兼容）。
+  deletedAt: nonNegativeSafeInteger.optional(),
 }).superRefine((record, ctx) => {
   if (record.updatedAt < record.createdAt) {
     ctx.addIssue({
       code: 'custom',
       path: ['updatedAt'],
       message: 'memory updatedAt must not precede createdAt',
+    })
+  }
+  if (record.deletedAt !== undefined && record.deletedAt < record.createdAt) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['deletedAt'],
+      message: 'memory deletedAt must not precede createdAt',
     })
   }
   if (new Set(record.tags).size !== record.tags.length) {
