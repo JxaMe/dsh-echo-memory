@@ -284,9 +284,26 @@ dsh-web restart
 | 推送 `v*` 标签（如 `v0.1.0`） | 构建 + 测试 + 打包，tgz 自动上传为该标签的 **Release 附件** |
 | Actions 页手动触发（`workflow_dispatch`） | 只构建并产出 artifact，不发布 |
 
-**流水线**：`pnpm install --frozen-lockfile` → `typecheck`（tsc 严格模式）→ `test`（19 条单测）→ `build`（两段式：tsc → `lib/types/`，tsdown → `lib/index.js` + `lib/client.js`，与本地一致）→ `pnpm pack` 产出 `dsh-echo-memory-<版本>.tgz`。
+**流水线**：`pnpm install --frozen-lockfile` → `typecheck`（tsc 严格模式）→ `test`（21 条单测）→ `build`（两段式：tsc → `lib/types/`，tsdown → `lib/index.js` + `lib/client.js`，与本地一致）→ `pnpm pack` 产出 `dsh-echo-memory-<版本>.tgz`。
 
 **产物内容**：`lib/` + `cordis.patch.yml` + `README.md`（由 package.json 的 `files` 字段限定）——即安装所需的完整文件集。本地开发仍可随时手动 `pnpm run build`（见「开发」一节）。
+
+### 发版规律（semver，0.x 阶段）
+
+| 改动类型 | 版本变化 | 示例 |
+| --- | --- | --- |
+| **feat**（新功能：新工具/新设置/新行为） | minor +1 | 0.1.0 → 0.2.0 |
+| **fix**（bug 修复） | patch +1 | 0.2.0 → 0.2.1 |
+| **refactor/docs/test/chore**（行为不变） | 不升，随下次发布 | — |
+| **breaking**（数据格式/工具签名/设置键含义破坏） | 0.x 阶段也直接 minor +1，Release notes 显著标注迁移说明 | 0.2.0 → 0.3.0 |
+
+约定：
+
+- **版本唯一源 = `package.json` 的 `version`**；tag 必须为 `v<version>` 且一致——workflow 已内置校验，不一致直接失败。
+- 发布时机：一个 feat 完整落地即自然节点，不必每次 commit 都发。
+- Release notes 规律：**breaking 置顶（迁移说明）→ feat 新功能 → fix 修复**（以 `git log --reverse` 做底稿润色）。
+- 何时 1.0.0：功能稳定 + 有真实用户跑一段时间 + 外部 API（`ctx.memory` 服务、`memory_*` 工具）承诺稳定。
+- 发版动作：改 `version` → `git tag v<version> && git push origin v<version>` → Actions 自动构建发布。
 
 ---
 
@@ -399,7 +416,7 @@ dsh --profile web --dump-config | grep dsh-echo-memory   # 应无输出
 ```sh
 pnpm install          # 依赖安装（构建脚本许可在 pnpm-workspace.yaml 的 allowBuilds）
 pnpm run typecheck    # tsc 严格类型检查（含测试）
-pnpm test             # node:test 单测（store / capture / card-util，19 条）
+pnpm test             # node:test 单测（store / capture / card-util，21 条）
 pnpm run build        # tsc → lib/types/，tsdown → lib/index.js + lib/client.js
 ```
 
