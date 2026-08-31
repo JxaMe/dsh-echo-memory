@@ -277,6 +277,8 @@ export class MemoryStore {
 
   /**
    * 计算提示词注入候选（按排名降序，供 text provider 使用，不注入会话日志之外的内容）。
+   * 老化规则：超过新鲜度窗口（90 天）未更新的记忆不参与注入（「自动想起」只带新鲜的），
+   * 但 memory_search 仍可显式检索到历史记忆。
    * @param workspace - 当前会话 cwd；`*` 时只取全局记忆。
    * @param limit - 候选上限。
    * @param now - 时间基准，缺省当前时间（测试注入）。
@@ -285,6 +287,7 @@ export class MemoryStore {
     const candidates: RecallCandidate[] = []
     for (const [, record] of this.table.entries()) {
       if (record.deletedAt !== undefined) continue
+      if (now - record.updatedAt > FRESH_WINDOW_MS) continue // 老化：过期记忆退出注入
       if (record.workspace !== workspace && record.workspace !== GLOBAL_WORKSPACE) continue
       const rank = record.strength * recencyFactor(record.updatedAt, now)
       candidates.push({ record, rank })

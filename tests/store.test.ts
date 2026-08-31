@@ -235,3 +235,22 @@ test('liveCount：只数活跃记忆，不含墓碑', async () => {
   assert.equal(store.liveCount(), 1)
   assert.ok(a.id !== b.id)
 })
+
+test('老化：超过 90 天未更新的记忆退出注入，但 memory_search 仍可检索', async () => {
+  const store = makeStore()
+  const NOW = 100 * 24 * 60 * 60 * 1000 // 基准时间（毫秒）
+  const fresh = await store.save({ workspace: '/w', content: '本月记忆' }, NOW)
+  const stale = await store.save({ workspace: '/w', content: '百天前的记忆' }, NOW - 91 * 24 * 60 * 60 * 1000)
+  const edge = await store.save({ workspace: '/w', content: '刚好90天' }, NOW - 90 * 24 * 60 * 60 * 1000)
+  assert.ok(fresh.id !== stale.id && stale.id !== edge.id)
+  // 注入只带新鲜的（91 天前的不注入，90 天整的仍注入）
+  const injected = store.rankedForInjection('/w', 8, NOW).map(c => c.record.content)
+  assert.ok(injected.includes('本月记忆'))
+  assert.ok(injected.includes('刚好90天'))
+  assert.ok(!injected.includes('百天前的记忆'))
+  assert.ok(!store.recallText({ workspace: '/w', limit: 8, maxChars: 1000 }, NOW).includes('百天前的记忆'))
+  // 检索不受老化影响：历史记忆仍可显式查到
+  const hit = store.search({ query: '百天前' })[0]
+  assert.ok(hit)
+  assert.equal(hit.record.content, '百天前的记忆')
+})
