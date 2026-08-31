@@ -4,6 +4,8 @@
 
 记忆**落盘在你本地的 `memory.json`**，人类可读、原子写入、重启不丢。
 
+> **兼容性：仅适配 `DSH 0.1.2-alpha.2`（`cordis ^4.0.2`）**。`0.1.10` 起已迁移至 `dsh-client-store / settings.installSection / 3参 intercept`；旧的 `0.1.1-rc.2` 需先升级 Harness 再安装本插件。`0.x` 阶段 API 仍可能 breaking，以 `package.json` 的 peerDependencies 为准。
+
 ## ✨ 功能总览
 
 | 能力 | 怎么触发 |
@@ -45,14 +47,18 @@
 
 ## 🔧 安装
 
-> 以 web profile 为例，其他 profile 把 `web` 换成对应名字。已安装 DSH 即可，**不需要本地 Node / pnpm**。
+> 以 web profile 为例，其他 profile 把 `web` 换成对应名字。已安装 **DSH 0.1.2-alpha.2** 即可，**不需要本地 Node / pnpm**；旧版请先升级 Harness。
 
-把下面的提示词发给 **DSH 的 agent**（新建会话粘贴即可），它负责执行与核验：
+把下面的提示词发给 **DSH 的 agent**（新建会话粘贴即可），它会自行判断你的 DSH 安装方式并执行与核验：
 
 ````text
 请帮我安装 dsh-echo-memory 插件（DeepSeek Harness 跨会话记忆插件）到 web profile：
 
-1. 在终端执行：dsh plugin --profile web add github:JxaMe/dsh-echo-memory
+1. 先判断 DSH 安装方式再执行安装（把 web 换成你的 profile 名）：
+   - 若 `dsh --version` 可用（npm 全局安装）：执行 `dsh plugin --profile web add github:JxaMe/dsh-echo-memory`
+   - 若在 deepseek-harness 源码检出目录：执行 `pnpm dsh plugin --profile web add github:JxaMe/dsh-echo-memory`
+   - 否则（无全局 dsh）：执行 `npx @deepseek-ai/dsh plugin --profile web add github:JxaMe/dsh-echo-memory`
+   - 上述任一方式均要求 DSH ≥ 0.1.2-alpha.2（cordis ^4.0.2），旧版先升级 Harness
 2. 若因构建许可失败，按报错提示把 allowBuilds 条目加入本 profile 的 pnpm-workspace.yaml 后重试同一条命令；
 3. 确认 node_modules/dsh-echo-memory/lib/ 存在（index.js 与 client.js，构建产物）；
 4. 确认本 profile 的 package.json 里 dsh.profile.bundles 数组已含 "dsh-echo-memory"；
