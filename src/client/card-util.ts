@@ -2,7 +2,7 @@
  * 卡片字段的纯转换函数：存储值 ↔ 草稿文本。
  * 与官方 card-form 的规格语义一致（空草稿 = 清除覆盖回组合层；非法草稿阻塞保存），
  * 实现自包含，方便单测。
- * @module dsh-memory/client/card-util
+ * @module dsh-echo-memory/client/card-util
  */
 
 /** 一次保存执行的字段写入。 */

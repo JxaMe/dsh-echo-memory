@@ -1,9 +1,9 @@
 /**
- * dsh-memory 设置命名空间（Host 半侧）：`memory` 命名空间的 schema 与注册标识。
+ * dsh-echo-memory 设置命名空间（Host 半侧）：`memory` 命名空间的 schema 与注册标识。
  * 设置在 `$DSH_HOME/settings.yaml` 的 `memory:` 分节；解析顺序 = schema 默认
  * < 组合层 base（cordis.yml 行配置）< 用户分节。客户端卡片与 Host 消费方
  * 通过该命名空间配对。
- * @module dsh-memory/settings
+ * @module dsh-echo-memory/settings
  */
 
 import s from '@deepseek-ai/schemastery'

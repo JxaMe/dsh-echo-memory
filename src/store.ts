@@ -2,7 +2,7 @@
  * 记忆仓储：领域表之上的纯业务逻辑（无 ctx 依赖，逻辑可单测）。
  * 写入顺序由调用方负责——工具的 execute 与捕获监听串行化度足够，单宿主进程内不做额外加锁；
  * 存储领域自身按写链串行。
- * @module dsh-memory/store
+ * @module dsh-echo-memory/store
  */
 
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -153,7 +153,7 @@ export class MemoryStore {
   async save(input: SaveInput, now: number = Date.now()): Promise<SaveOutcome> {
     const content = normalizeContent(input.content, this.limits.contentMaxChars)
     if (content.length === 0) {
-      throw new TypeError('dsh-memory: memory content must contain a non-whitespace character')
+      throw new TypeError('dsh-echo-memory: memory content must contain a non-whitespace character')
     }
     const kind = input.kind ?? 'fact'
     const workspace = input.workspace.trim() === '' ? GLOBAL_WORKSPACE : input.workspace.trim()
@@ -265,7 +265,7 @@ export class MemoryStore {
       this.seq += 1
       if (this.table.get(id) === undefined) return id
       if (this.seq > 1_000_000) {
-        throw new Error('dsh-memory: memory id space exhausted for this timestamp')
+        throw new Error('dsh-echo-memory: memory id space exhausted for this timestamp')
       }
     }
   }

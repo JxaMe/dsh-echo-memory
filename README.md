@@ -1,4 +1,4 @@
-# dsh-memory
+# dsh-echo-memory
 
 > DSH（DeepSeek Harness）专用的跨会话持久记忆插件——让 agent 记住你的偏好、项目约束与已定决策，并在后续会话**自动想起**。
 
@@ -120,7 +120,7 @@
 
 ### 4. 设置面板卡片
 
-WebUI 的 **设置 → 插件（左侧第一个「插件」导航）→ 插件配置** 里有「记忆（dsh-memory）」卡片。**默认折叠**（与官方卡片同款手风琴：header 整行可点、有草稿时显示「未保存」、chevron 翻转，草稿在折叠期间保留）。
+WebUI 的 **设置 → 插件（左侧第一个「插件」导航）→ 插件配置** 里有「记忆（dsh-echo-memory）」卡片。**默认折叠**（与官方卡片同款手风琴：header 整行可点、有草稿时显示「未保存」、chevron 翻转，草稿在折叠期间保留）。
 
 可在线调整 6 个运行参数，**保存后即时生效，无需重启**：
 
@@ -192,30 +192,30 @@ interface MemoryRecord {
 
 | 参数 | pnpm 语义 | 本插件现状 |
 | --- | --- | --- |
-| `dsh-memory`（裸包名） | 从 **npm registry** 安装 | ⛔ 尚未发布 npm，装不到 |
-| `./dsh-memory-0.1.0.tgz`（文件路径） | `file:` 依赖（复制安装） | ✅ 发布形态，见第 1 步 |
-| `/path/to/dsh-memory`（目录路径） | `link:` 依赖（源码直连，改代码重启即生效） | ✅ 本地迭代用 |
-| `github:owner/dsh-memory` | 从 git 拉取并跑 `prepare` 自动构建 | ⏳ 仓库推送后可用 |
+| `dsh-echo-memory`（裸包名） | 从 **npm registry** 安装 | ⛔ 尚未发布 npm，装不到 |
+| `./dsh-echo-memory-0.1.0.tgz`（文件路径） | `file:` 依赖（复制安装） | ✅ 发布形态，见第 1 步 |
+| `/path/to/dsh-echo-memory`（目录路径） | `link:` 依赖（源码直连，改代码重启即生效） | ✅ 本地迭代用 |
+| `github:owner/dsh-echo-memory` | 从 git 拉取并跑 `prepare` 自动构建 | ⏳ 仓库推送后可用 |
 
 > 想「直接裸包名安装」的前提是把包发布到 npm——GitHub 不参与裸名解析。
 
 ### 第 1 步：获取构建产物
 
-从仓库的 **GitHub Releases** 页面下载最新 `dsh-memory-<版本>.tgz`（推送 `v*` 标签即触发自动构建并发布，见下方「自动构建」）。
+从仓库的 **GitHub Releases** 页面下载最新 `dsh-echo-memory-<版本>.tgz`（推送 `v*` 标签即触发自动构建并发布，见下方「自动构建」）。
 
-> 想在源码目录上直接迭代（改完插件代码重启即生效）的开发者，可跳过 tgz，先本地 `pnpm install && pnpm run build`，再 `dsh plugin --profile web add /path/to/dsh-memory`（profile 内建立 `link:` 依赖）；本节其余步骤不变。
+> 想在源码目录上直接迭代（改完插件代码重启即生效）的开发者，可跳过 tgz，先本地 `pnpm install && pnpm run build`，再 `dsh plugin --profile web add /path/to/dsh-echo-memory`（profile 内建立 `link:` 依赖）；本节其余步骤不变。
 
 ### 第 2 步：注册为 profile 依赖
 
 ```sh
-dsh plugin --profile web add ./dsh-memory-0.1.0.tgz
+dsh plugin --profile web add ./dsh-echo-memory-0.1.0.tgz
 ```
 
 该命令在 profile 目录内转发给 pnpm：把插件写入 `~/.dsh/profiles/web/package.json` 的 dependencies 并装入 node_modules。
 
 ### 第 3 步：加入 bundles 组合（关键，手动）
 
-编辑 `~/.dsh/profiles/web/package.json`，把 `"dsh-memory"` **追加进 `dsh.profile.bundles` 数组末尾**：
+编辑 `~/.dsh/profiles/web/package.json`，把 `"dsh-echo-memory"` **追加进 `dsh.profile.bundles` 数组末尾**：
 
 ```json
 {
@@ -225,7 +225,7 @@ dsh plugin --profile web add ./dsh-memory-0.1.0.tgz
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
         "其他已有插件……",
-        "dsh-memory"
+        "dsh-echo-memory"
       ]
     }
   }
@@ -238,10 +238,10 @@ dsh plugin --profile web add ./dsh-memory-0.1.0.tgz
 
 ```sh
 # 校验：组合树里应出现 memory 行
-dsh --profile web --dump-config | grep -A1 'dsh-memory'
+dsh --profile web --dump-config | grep -A1 'dsh-echo-memory'
 # 期望输出：
 #   - id: memory
-#     name: dsh-memory
+#     name: dsh-echo-memory
 
 # 重启 web 服务使插件生效（会中断当前所有会话）
 dsh-web restart
@@ -251,9 +251,9 @@ dsh-web restart
 
 依次检查三点：
 
-1. **日志**：`dsh-web logs | grep dsh-memory`，应看到
-   `[dsh-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)`；
-2. **设置卡片**：WebUI → 设置 → 插件（第一个）→ 插件配置，可见「记忆（dsh-memory）」卡片；
+1. **日志**：`dsh-web logs | grep dsh-echo-memory`，应看到
+   `[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)`；
+2. **设置卡片**：WebUI → 设置 → 插件（第一个）→ 插件配置，可见「记忆（dsh-echo-memory）」卡片；
 3. **工具**：新会话让 agent「用 memory_search 搜一下任意词」，工具应可调用。
 
 > 💡 不想动主服务时，可先起独立验证实例：`dsh --profile web --port 3999 --no-open`，按上述三点在该实例验证。
@@ -267,7 +267,7 @@ dsh-web restart
 | 推送 `v*` 标签（如 `v0.1.0`） | 构建 + 测试 + 打包，tgz 自动上传为该标签的 **Release 附件** |
 | Actions 页手动触发（`workflow_dispatch`） | 只构建并产出 artifact，不发布 |
 
-**流水线**：`pnpm install --frozen-lockfile` → `typecheck`（tsc 严格模式）→ `test`（19 条单测）→ `build`（两段式：tsc → `lib/types/`，tsdown → `lib/index.js` + `lib/client.js`，与本地一致）→ `pnpm pack` 产出 `dsh-memory-<版本>.tgz`。
+**流水线**：`pnpm install --frozen-lockfile` → `typecheck`（tsc 严格模式）→ `test`（19 条单测）→ `build`（两段式：tsc → `lib/types/`，tsdown → `lib/index.js` + `lib/client.js`，与本地一致）→ `pnpm pack` 产出 `dsh-echo-memory-<版本>.tgz`。
 
 **产物内容**：`lib/` + `cordis.patch.yml` + `README.md`（由 package.json 的 `files` 字段限定）——即安装所需的完整文件集。本地开发仍可随时手动 `pnpm run build`（见「开发」一节）。
 
@@ -353,13 +353,13 @@ cat ~/.dsh/storages/memory.json        # 首次保存后该文件出现，人类
 
 ```sh
 # 1. 移除依赖（转发 pnpm remove，清理 link 与 node_modules）
-dsh plugin --profile web remove dsh-memory
+dsh plugin --profile web remove dsh-echo-memory
 ```
 
 然后**手动**编辑 `~/.dsh/profiles/web/package.json`：
 
 ```jsonc
-// 2. 从 dsh.profile.bundles 数组中删除 "dsh-memory" 这一行
+// 2. 从 dsh.profile.bundles 数组中删除 "dsh-echo-memory" 这一行
 ```
 
 ```sh
@@ -367,7 +367,7 @@ dsh plugin --profile web remove dsh-memory
 dsh-web restart
 
 # 4. 验证已卸干净
-dsh --profile web --dump-config | grep dsh-memory   # 应无输出
+dsh --profile web --dump-config | grep dsh-echo-memory   # 应无输出
 ```
 
 **数据去留**：
@@ -389,7 +389,7 @@ pnpm run build        # tsc → lib/types/，tsdown → lib/index.js + lib/clien
 ### 目录结构
 
 ```
-dsh-memory/
+dsh-echo-memory/
 ├── package.json          # dsh.bundle / dsh.client 声明 + 依赖
 ├── cordis.patch.yml      # bundle patch：insert 一行 memory 挂载
 ├── .github/workflows/    # release.yml：推送 v* 标签自动构建并发布 tgz

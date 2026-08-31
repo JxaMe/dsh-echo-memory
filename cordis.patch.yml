@@ -1,8 +1,8 @@
-# dsh-memory bundle patch layer.
+# dsh-echo-memory bundle patch layer.
 # 挂载一行：插件实例化后注册全局记忆工具、系统提示词上下文与 session 事件捕获。
 # 层顺序：本包追加进 profile 的 dsh.profile.bundles 后，patch 叠加在
 # @deepseek-ai/dsh-base / @deepseek-ai/dsh-web-app 之上，因此注入的
 # storageDomain / systemPrompt / tools 服务均已就绪。
 - insert:
     - id: memory
-      name: dsh-memory
+      name: dsh-echo-memory

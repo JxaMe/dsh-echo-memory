@@ -3,7 +3,7 @@
  * 卡片的快照 store 与动作。设计遵循官方 card-form 的暂存原则——用户输入先入草稿，
  * 只有「保存」才发起持久化写入；「已覆盖」以用户层字段出现与否为准，而非值比较。
  * 实现自包含（官方 card-form 是 ui-settings-plugins 的私有实现，不得跨插件导入）。
- * @module dsh-memory/client/card-controller
+ * @module dsh-echo-memory/client/card-controller
  */
 
 import {

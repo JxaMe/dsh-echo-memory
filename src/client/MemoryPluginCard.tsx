@@ -1,12 +1,12 @@
 /**
- * dsh-memory 设置卡片：编辑 `memory` 命名空间的用户分节。
+ * dsh-echo-memory 设置卡片：编辑 `memory` 命名空间的用户分节。
  * 结构与视觉复刻官方 PluginCard + fields（ui-settings-plugins 的私有实现，
  * 不得跨插件导入，故以自包含方式重写）：默认折叠，header 整行可点展开；
  * 展开态是卡片局部 state，草稿存于 controller、独立于折叠保留。
  * 样式经一次性注入的 `<style>`（类名前缀 `dshm-` 隔离，幂等）承载——
  * 数值逐项取自官方 PluginCard.module.css / fields.module.css，
  * 内联 style 无法表达 :hover / :focus-visible / 相邻选择器。
- * @module dsh-memory/client/card
+ * @module dsh-echo-memory/client/card
  */
 
 import { useState } from 'react'
@@ -24,7 +24,7 @@ export type MemoryPluginCardProps =
   & InjectFace<MemoryCardFace>
 
 /** 注入样式表的元素 id（幂等锚点）。 */
-const STYLE_ID = 'dsh-memory-card-styles'
+const STYLE_ID = 'dsh-echo-memory-card-styles'
 
 /**
  * 把卡片样式注入文档头（幂等）：数值逐项对齐官方
@@ -185,7 +185,7 @@ function MemoryBooleanField(props: {
 }
 
 /**
- * 渲染 dsh-memory 设置卡片（默认折叠，header 点击展开；草稿独立于折叠保留）。
+ * 渲染 dsh-echo-memory 设置卡片（默认折叠，header 点击展开；草稿独立于折叠保留）。
  * @param props - locale 文案、卡片状态快照（useMemoryCard）与表单动作。
  * @returns 折叠卡片；命名空间未受服务时不渲染（对齐官方：不留禁用卡残迹）。
  */
@@ -223,7 +223,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
             {!writable ? <p className="dshm-readOnly" role="status">{t('status.readOnly')}</p> : null}
             <MemoryBooleanField
               t={t}
-              id="dsh-memory-inject-enabled"
+              id="dsh-echo-memory-inject-enabled"
               label={t('field.injectEnabled')}
               hint={t('field.injectEnabled.hint')}
               checked={state.injectEnabled.checked}
@@ -234,7 +234,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
             />
             <MemoryTextField
               t={t}
-              id="dsh-memory-inject-limit"
+              id="dsh-echo-memory-inject-limit"
               label={t('field.injectLimit')}
               hint={t('field.injectLimit.hint')}
               state={state.injectLimit}
@@ -245,7 +245,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
             />
             <MemoryTextField
               t={t}
-              id="dsh-memory-inject-chars"
+              id="dsh-echo-memory-inject-chars"
               label={t('field.injectMaxChars')}
               hint={t('field.injectMaxChars.hint')}
               state={state.injectMaxChars}
@@ -256,7 +256,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
             />
             <MemoryBooleanField
               t={t}
-              id="dsh-memory-capture-enabled"
+              id="dsh-echo-memory-capture-enabled"
               label={t('field.captureEnabled')}
               hint={t('field.captureEnabled.hint')}
               checked={state.captureEnabled.checked}
@@ -267,7 +267,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
             />
             <MemoryTextField
               t={t}
-              id="dsh-memory-capture-patterns"
+              id="dsh-echo-memory-capture-patterns"
               label={t('field.capturePatterns')}
               hint={t('field.capturePatterns.hint')}
               state={state.capturePatterns}
@@ -278,7 +278,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
             />
             <MemoryTextField
               t={t}
-              id="dsh-memory-capture-max"
+              id="dsh-echo-memory-capture-max"
               label={t('field.captureMaxPerSession')}
               hint={t('field.captureMaxPerSession.hint')}
               state={state.captureMaxPerSession}

@@ -1,5 +1,5 @@
 /**
- * dsh-memory 双半侧构建，复刻官方包的两段式约定：
+ * dsh-echo-memory 双半侧构建，复刻官方包的两段式约定：
  *  1. 宿主半：tsc 产出 lib/types/*.js（NodeNext ESM），tsdown 从中打包出
  *     lib/*.js 运行时（依赖与 peer 保持外部，由 Node 在运行时解析）；
  *  2. 客户端半：从 src/client 打包 closure-factory artifact（浏览器模块表契约）。
@@ -22,7 +22,7 @@ const BASELINE_EXTERNALS: ReadonlySet<string> = new Set([
 
 export default [
   {
-    name: 'dsh-memory/host',
+    name: 'dsh-echo-memory/host',
     entry: ['lib/types/index.js'],
     outDir: 'lib',
     format: ['esm'],
@@ -35,7 +35,7 @@ export default [
     clean: false,
   },
   {
-    name: 'dsh-memory/client',
+    name: 'dsh-echo-memory/client',
     entry: { client: 'src/client/index.ts' },
     outDir: 'lib',
     format: ['cjs'],
@@ -59,7 +59,7 @@ export default [
     },
     outputOptions: {
       entryFileNames: 'client.js',
-      banner: `window.__ModuleLoader__.load({ id: "dsh-memory", factory: (require) => {`,
+      banner: `window.__ModuleLoader__.load({ id: "dsh-echo-memory", factory: (require) => {`,
       footer: 'return module.exports; } });',
       intro: 'var module = { exports: {} }; var exports = module.exports;',
     },

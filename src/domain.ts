@@ -1,7 +1,7 @@
 /**
- * dsh-memory 记忆领域：单一数据源（身份、版式、记录 schema）。
+ * dsh-echo-memory 记忆领域：单一数据源（身份、版式、记录 schema）。
  * 记录 schema 用 zod 描述，存储层（storage-domain json 后端）在打开时校验全部已存记录。
- * @module dsh-memory/domain
+ * @module dsh-echo-memory/domain
  */
 
 import { z } from 'zod'

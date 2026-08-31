@@ -1,8 +1,8 @@
-/** `settings.memory` 命名空间字典（dsh-memory 设置卡片的文案）。 */
+/** `settings.memory` 命名空间字典（dsh-echo-memory 设置卡片的文案）。 */
 
 /** 简体中文词典（键集的事实标准）。 */
 export const zh = {
-  'card.title': '记忆（dsh-memory）',
+  'card.title': '记忆（dsh-echo-memory）',
   'card.description': '跨会话持久记忆：提示词注入与自动捕获的行为设置，保存后即时生效。',
   'card.expand': '展开设置',
   'card.collapse': '收起设置',
@@ -34,7 +34,7 @@ export type MemoryKey = keyof typeof zh
 
 /** 英文词典（与中文键集完整对应）。 */
 export const en = {
-  'card.title': 'Memory (dsh-memory)',
+  'card.title': 'Memory (dsh-echo-memory)',
   'card.description': 'Cross-session persistent memory: prompt injection and auto-capture behavior. Changes apply immediately after saving.',
   'card.expand': 'Show settings',
   'card.collapse': 'Hide settings',

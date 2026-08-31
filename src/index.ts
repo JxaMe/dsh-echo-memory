@@ -1,12 +1,12 @@
 /**
- * dsh-memory：DSH 专用跨会话记忆插件。
+ * dsh-echo-memory：DSH 专用跨会话记忆插件。
  * 单行挂载（bundle patch `insert` 的 host 平面行），实例化后：
  *  1. 打开 `memory` 存储领域（storage-domain json 后端，落盘 `$DSH_HOME/storages/memory.json`）；
  *  2. 向 tools 部署全局层注册 memory_save / memory_search / memory_forget；
  *  3. 注册 systemPrompt 动态上下文（组装期注入 Top-N 记忆，按会话 cwd 过滤）；
  *  4. 监听 session/event 捕获用户「记住」句式（可配置、按会话限流）。
  * 同时以 `ctx.memory`（Service）向其他 DSH 插件暴露 save/search/forget。
- * @module dsh-memory
+ * @module dsh-echo-memory
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -49,12 +49,12 @@ export interface Config {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** dsh-memory 提供的能力（供其他 DSH 插件消费）。 */
+    /** dsh-echo-memory 提供的能力（供其他 DSH 插件消费）。 */
     memory: MemoryService
   }
 }
 
-/** dsh-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
+/** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
 export default class MemoryService extends Service {
   static inject = ['storageDomain', 'systemPrompt', 'tools']
 
@@ -99,7 +99,7 @@ export default class MemoryService extends Service {
     const domain = await this.ctx.storageDomain.open(memoryDomainSpec)
     this.ctx.effect(() => async () => {
       await domain.close()
-    }, 'dsh-memory.domainClose')
+    }, 'dsh-echo-memory.domainClose')
     const table = domain.table('memories')
     this.store = new MemoryStore(table, {
       contentMaxChars: this.config.contentMaxChars,
@@ -108,7 +108,7 @@ export default class MemoryService extends Service {
     this.registerTools()
     this.registerPrompt()
     this.registerCapture()
-    console.log('[dsh-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)')
+    console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)')
   }
 
   /**
@@ -170,7 +170,7 @@ export default class MemoryService extends Service {
   private requireStore(): MemoryStore {
     const store = this.store
     if (store === undefined) {
-      throw new Error('dsh-memory: store not ready (Service.init did not complete)')
+      throw new Error('dsh-echo-memory: store not ready (Service.init did not complete)')
     }
     return store
   }

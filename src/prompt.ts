@@ -3,7 +3,7 @@
  * 用 ctx.systemPrompt.context —— 动态模型上下文按 durable user-role 快照落会话日志，
  * 满足「模型可见 ⟺ 已记录」约定；文本为空时空转零开销。
  * 开关与限量在每次组装时现读（设置面板变更即时生效）。
- * @module dsh-memory/prompt
+ * @module dsh-echo-memory/prompt
  */
 
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
@@ -43,7 +43,7 @@ export function memoryContextText(
     } catch (error) {
       if (!warnedOnce) {
         warnedOnce = true
-        console.warn('[dsh-memory] prompt context provider failed; injection disabled for this instance', error)
+        console.warn('[dsh-echo-memory] prompt context provider failed; injection disabled for this instance', error)
       }
       return ''
     }

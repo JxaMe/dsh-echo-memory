@@ -2,7 +2,7 @@
  * 自动捕获：监听 `session/event` 的 `user/message`，按显式「记住」句式落库。
  * 只采用确定性规则（不调 LLM、不产生 Token 开销），句式与上限全部可配置。
  * 配置每次事件现读（设置面板变更即时生效）。
- * @module dsh-memory/capture
+ * @module dsh-echo-memory/capture
  */
 
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -56,7 +56,7 @@ export function createCaptureHandler(
       const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
       void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })
         .catch(error => {
-          console.warn('[dsh-memory] auto capture failed; message skipped', error)
+          console.warn('[dsh-echo-memory] auto capture failed; message skipped', error)
         })
       return
     }

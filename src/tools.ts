@@ -2,7 +2,7 @@
  * 模型可见的记忆工具：memory_save / memory_search / memory_forget。
  * 注册进 tools 注册表的部署全局层（host 平面），全部 agent/会话可见；
  * 卡片渲染意图统一为 `generic`（回退通用卡片，不引入 UI 专属格式）。
- * @module dsh-memory/tools
+ * @module dsh-echo-memory/tools
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'

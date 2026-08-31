@@ -1,9 +1,9 @@
 /**
- * dsh-memory 浏览器半侧：把记忆设置卡片注册进「插件配置」分区的
+ * dsh-echo-memory 浏览器半侧：把记忆设置卡片注册进「插件配置」分区的
  * `settings.plugin.item` 槽位（key = 与 Host 一致的 `memory` 命名空间），
  * 由 ui-settings-plugins 的 configurable 标签页按命名空间配对渲染。
  * 跨插件协作只走服务（slots/locale/settingsScope），不产生值导入。
- * @module dsh-memory/client
+ * @module dsh-echo-memory/client
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -43,7 +43,7 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope
  * @param ctx - 浏览器 cordis 上下文（上述注入就绪后执行）。
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-memory: settings card dictionaries')
+  ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-echo-memory: settings card dictionaries')
   const controller = new MemoryCardController(
     ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS_VALUE }),
   )
