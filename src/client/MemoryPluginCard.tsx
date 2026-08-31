@@ -17,6 +17,7 @@ import type { MemoryCardFace, MemoryCardField, MemoryCardFieldState, MemoryCardS
 import type { MemoryCardTextField } from './card-controller.ts'
 import type { DeletionMode } from '../settings.ts'
 import type { MemoryKey } from './locales.ts'
+import pkg from '../../package.json' with { type: 'json' }
 
 /** 卡片组件 props：槽位运行时份额 + locale 份额 + 插槽 inject 面。 */
 export type MemoryPluginCardProps =
@@ -43,6 +44,7 @@ function ensureCardStyles(): void {
 .dshm-header:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
 .dshm-headText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .dshm-name { font-size: 15px; font-weight: 600; line-height: 1.4; color: var(--dsw-alias-label-primary); }
+.dshm-version { font-size: 11px; font-weight: 400; color: var(--dsw-alias-label-tertiary); margin-left: 6px; vertical-align: middle; }
 .dshm-desc { font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
 .dshm-pending { flex: none; border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500; white-space: nowrap; background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-secondary); }
 .dshm-chevron { flex: none; display: inline-flex; color: var(--dsw-alias-label-tertiary); transition: transform .16s; }
@@ -259,7 +261,8 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
   const { t } = props
   const state = props.useMemoryCard(snapshot => snapshot)
   if (!state.available) return null
-  const title = t('card.title')
+  const version = (pkg as { version?: string }).version ?? ''
+  const baseTitle = t('card.title')
   const saveDisabled = !state.writable || state.invalid || state.saving || !state.dirty
   const discardDisabled = state.saving || !state.dirty
   const writable = state.writable
@@ -269,11 +272,11 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
         type="button"
         className="dshm-header"
         aria-expanded={open}
-        aria-label={`${t(open ? 'card.collapse' : 'card.expand')}：${title}`}
+        aria-label={`${t(open ? 'card.collapse' : 'card.expand')}：${baseTitle}`}
         onClick={() => { setOpen(!open) }}
       >
         <span className="dshm-headText">
-          <span className="dshm-name">{title}</span>
+          <span className="dshm-name">{baseTitle}<span className="dshm-version">v{version}</span></span>
           <span className="dshm-desc">{t('card.description')}</span>
         </span>
         {state.dirty ? <span className="dshm-pending">{t('card.unsaved')}</span> : null}

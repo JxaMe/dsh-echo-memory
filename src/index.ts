@@ -69,7 +69,6 @@ declare module '@deepseek-ai/cordis' {
  */
 const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
 const MEMORY_STATS_ENDPOINT = 'dsh-echo-memory/stats'
-const MEMORY_PREVIEW_ENDPOINT = 'dsh-echo-memory/injection-preview'
 
 /** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
 export default class MemoryService extends Service {
@@ -113,7 +112,7 @@ export default class MemoryService extends Service {
         onChange: () => {},
       })
     })
-    // 浏览器卡片 RPC（彻底删除 + 统计）通道（官方 gateway 同款 intercept 模式）。
+    // 浏览器卡片 RPC（彻底删除 + 统计）通道
     this.registerCardRpc(ctx)
     this.registerPreviewRoute(ctx)
   }
@@ -206,39 +205,10 @@ export default class MemoryService extends Service {
     })
   }
 
-  /** 注入预览/统计/墓碑清理的 HTTP 直连（供 card/dock fetch，绕过 connection 单拦截器） */
+  /** 统计/墓碑清理的 HTTP 直连（供 card fetch，绕过 connection 单拦截器） */
   private registerPreviewRoute(ctx: Context): void {
     ctx.inject(['webServer'], (webCtx) => {
       const regs: Array<() => void> = []
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/preview',
-        handler: async (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const url = new URL(req.url ?? '', `http://${req.headers.host ?? '127.0.0.1'}`)
-            let workspace = url.searchParams.get('workspace') ?? ''
-            if (req.method === 'POST') {
-              const body = await new Promise<string>((resolve) => {
-                let data = ''
-                req.on('data', (chunk: Buffer) => { data += chunk.toString() })
-                req.on('end', () => resolve(data))
-              })
-              try {
-                const parsed = JSON.parse(body) as { workspace?: unknown }
-                if (typeof parsed.workspace === 'string') workspace = parsed.workspace
-              } catch {
-                // ignore, use query
-              }
-            }
-            const preview = this.injectionPreview({ workspace })
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify(preview))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
       regs.push(webCtx.webServer.register({
         kind: 'exact',
         path: '/api/dsh-echo-memory/stats',
@@ -268,36 +238,6 @@ export default class MemoryService extends Service {
       }))
       return () => { for (const dispose of regs) dispose() }
     })
-  }
-
-  /** 注入预览：按当前设置计算本工作区会注入的记忆（供会话 dock 可视化）。 */
-  private injectionPreview(payload: unknown): {
-    readonly enabled: boolean
-    readonly workspace: string
-    readonly limit: number
-    readonly maxChars: number
-    readonly items: readonly { readonly id: string; readonly kind: string; readonly content: string; readonly tags: readonly string[]; readonly strength: number; readonly workspace: string }[]
-    readonly text: string
-  } {
-    const raw = (payload as { readonly workspace?: unknown } | null)?.workspace
-    const requested = typeof raw === 'string' ? raw.trim() : ''
-    const workspace = requested === '' ? GLOBAL_WORKSPACE : requested
-    const settings = this.readSettings()
-    if (!settings.injectEnabled) {
-      return { enabled: false, workspace, limit: settings.injectLimit, maxChars: settings.injectMaxChars, items: [], text: '' }
-    }
-    const store = this.requireStore()
-    const candidates = store.rankedForInjection(workspace, settings.injectLimit)
-    const items = candidates.map(({ record }) => ({
-      id: record.id,
-      kind: record.kind,
-      content: record.content,
-      tags: [...record.tags] as readonly string[],
-      strength: record.strength,
-      workspace: record.workspace,
-    }))
-    const text = store.recallText({ workspace, limit: settings.injectLimit, maxChars: settings.injectMaxChars })
-    return { enabled: true, workspace, limit: settings.injectLimit, maxChars: settings.injectMaxChars, items, text }
   }
 
   private registerTools(): void {

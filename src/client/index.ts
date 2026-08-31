@@ -14,16 +14,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only：pull client 侧 `ctx.connection` 句柄类型（值不入包）。
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // 与 Host 共享的字段类型（type-only，擦除后不产生运行时依赖）。
 import type { MemorySettings } from '../settings.ts'
 import { MemoryCardController } from './card-controller.ts'
 import type { MemoryCardFace } from './card-controller.ts'
 import { MemoryPluginCard } from './MemoryPluginCard.tsx'
 import type { MemoryPluginCardProps } from './MemoryPluginCard.tsx'
-import { MemoryInjectionDock } from './MemoryInjectionDock.tsx'
-import type { InjectionPreview } from './MemoryInjectionDock.tsx'
 import { en, zh, type MemoryKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -40,13 +36,7 @@ const MEMORY_SETTINGS_NS_VALUE = 'memory'
 /** 本卡片的 locale 命名空间。 */
 const LOCALE_NS = 'settings.memory'
 
-/**
- * 卡片 RPC endpoints（与 Host 注册拼写一致；两侧各自拼写，不产生跨半侧值依赖）。
- * call 失败（RPC 层）在此抛出，卡片显示失败态。
- */
-const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
-const MEMORY_STATS_ENDPOINT = 'dsh-echo-memory/stats'
-const MEMORY_PREVIEW_ENDPOINT = 'dsh-echo-memory/injection-preview'
+/** Host 返回的运行期统计载荷（与 Host memoryStats() 同形，client 侧自拼类型）。 */
 
 /** Host 返回的运行期统计载荷（与 Host memoryStats() 同形，client 侧自拼类型）。 */
 export interface MemoryStatsPayload {
@@ -74,17 +64,6 @@ export function apply(ctx: ClientContext): void {
     locale: LOCALE_NS,
     inject: () => controller.inject(),
   }, MemoryPluginCard))
-  // 会话注入可视化：输入框上方折叠条（conversation.input.dock，session 作用域， additive）
-  // ponytail: any cast avoids adding dsh-client-ui-conversation dep for single dock entry
-  ;(ctx.slots.inject as unknown as (key: string, fn: () => () => void) => void)('conversation.input.dock', () => (ctx.slots.register as unknown as (opts: unknown, comp: unknown) => () => void)({
-    name: 'conversation.input.dock',
-    id: 'memory-injection-preview',
-    order: 5,
-    locale: LOCALE_NS,
-    inject: () => ({
-      fetchPreview: (workspace: string) => invokePreview(ctx, workspace),
-    }),
-  }, MemoryInjectionDock))
 }
 
 /**
@@ -115,38 +94,7 @@ async function invokeStats(_ctx: ClientContext): Promise<MemoryStatsPayload> {
   return { injections: { requests, withContent }, memories }
 }
 
-/** 拉取本会话会注入的记忆预览（走 webServer 直连，绕过 connection 单拦截器限制）。 */
-async function invokePreview(_ctx: ClientContext, workspace: string): Promise<InjectionPreview> {
-  const res = await fetch(`/api/dsh-echo-memory/preview?workspace=${encodeURIComponent(workspace)}`, {
-    method: 'GET',
-    headers: { 'Accept': 'application/json' },
-  })
-  if (!res.ok) throw new Error(`preview fetch failed HTTP ${res.status}`)
-  const value = await res.json() as unknown
-  const enabled = (value as { readonly enabled?: unknown }).enabled
-  const ws = (value as { readonly workspace?: unknown }).workspace
-  const limit = (value as { readonly limit?: unknown }).limit
-  const maxChars = (value as { readonly maxChars?: unknown }).maxChars
-  const items = (value as { readonly items?: unknown }).items
-  const text = (value as { readonly text?: unknown }).text
-  if (typeof enabled !== 'boolean' || typeof ws !== 'string' || typeof limit !== 'number' || typeof maxChars !== 'number' || !Array.isArray(items) || typeof text !== 'string') {
-    throw new Error('dsh-echo-memory: host returned malformed preview')
-  }
-  return value as InjectionPreview
-}
 
-/** 走 `/api` 共享通道调用一个 2 段式 endpoint，返回 ok 分支的 value。 */
-async function rpcCall(ctx: ClientContext, endpoint: string, payload: unknown = {}): Promise<unknown> {
-  const connection = ctx.get('connection') as ConnectionHandle | undefined
-  if (connection === undefined) {
-    throw new Error('dsh-echo-memory: connection service unavailable')
-  }
-  const result = await connection.rpc.call('/api', endpoint, payload as never)
-  if (!result.ok) {
-    throw new Error(`dsh-echo-memory: host rejected ${endpoint}: ${result.error.message}`)
-  }
-  return result.value
-}
 
 export type { MemoryCardFace, MemoryCardState, MemoryCardChoiceState, MemoryPurgeState } from './card-controller.ts'
 export type { MemoryPluginCardProps } from './MemoryPluginCard.tsx'
