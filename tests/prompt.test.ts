@@ -71,10 +71,11 @@ test('多条确认合并为一条提示', () => {
   assert.match(text, /已自动捕获 2 条记忆：「第一条」、「第二条」/)
 })
 
-test('无待确认条目时输出纯记忆正文', async () => {
+test('无待确认条目时不注入记忆（按需召回已迁至 pre-step）', async () => {
   const { store, feed } = setup()
   await store.save({ workspace: '/workspace/a', content: '已有记忆' })
   const text = provider(store, feed)(context('s1'))
+  assert.equal(text, '') // 广播式注入已废弃，有记忆也不从 systemPrompt 注入
   assert.doesNotMatch(text, /记忆确认/)
-  assert.match(text, /已有记忆/)
+  assert.doesNotMatch(text, /已有记忆/)
 })

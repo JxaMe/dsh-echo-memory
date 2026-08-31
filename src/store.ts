@@ -141,6 +141,26 @@ export function keywordScore(record: MemoryRecord, query: string): number {
   return score
 }
 
+/** 按需召回的 query 分词：提“systemd 怎么配”中的有效 token，避免整句不命中。 */
+export function tokenizeForRecall(query: string): string[] {
+  const trimmed = query.trim().toLowerCase()
+  if (trimmed.length === 0) return []
+  // 抽取连续的中日韩、字母、数字 token；单字中文也保留（避免“配”丢掉），英文/数字要求 ≥2 避免噪音
+  const raw = trimmed.match(/[\u4e00-\u9fa5]+|[a-z0-9]+/gi) ?? []
+  const seen = new Set<string>()
+  const tokens: string[] = []
+  for (const tok of raw) {
+    const t = tok.toLowerCase()
+    if (t.length === 0 || seen.has(t)) continue
+    // 过滤单字母英文噪音（a/I），但保留单字中文
+    if (/^[a-z]$/.test(t)) continue
+    seen.add(t)
+    tokens.push(t)
+    if (tokens.length >= 20) break // 上限 20 防长文爆炸
+  }
+  return tokens
+}
+
 /**
  * 记忆仓储。表句柄由领域打开后注入；读取同步（领域权威内存态），写入 await 持久化后生效。
  */
@@ -282,6 +302,7 @@ export class MemoryStore {
    * @param workspace - 当前会话 cwd；`*` 时只取全局记忆。
    * @param limit - 候选上限。
    * @param now - 时间基准，缺省当前时间（测试注入）。
+   * @deprecated 广播式召回已由按需召回（searchForRecall + pre-step）取代，保留仅为兼容旧测试与回滚。
    */
   rankedForInjection(workspace: string, limit: number, now: number = Date.now()): RecallCandidate[] {
     const candidates: RecallCandidate[] = []
@@ -301,6 +322,7 @@ export class MemoryStore {
    * 按 maxChars 截断（最后一行补省略号）；无记忆或全部超限返回空串（零贡献）。
    * @param options - 工作区、条数与字符上限。
    * @param now - 时间基准，缺省当前时间（测试注入）。
+   * @deprecated 广播式渲染已由按需渲染（renderRecallText）取代。
    */
   recallText(
     options: { readonly workspace: string; readonly limit: number; readonly maxChars: number },
@@ -317,6 +339,57 @@ export class MemoryStore {
       }
       if (lines.length === 0 && line.length > maxChars) {
         lines.push(`${line.slice(0, Math.max(0, maxChars - 1))}…`)
+        break
+      }
+      lines.push(line)
+      used += line.length + 1
+    }
+    return lines.join('\n')
+  }
+
+  /**
+   * 按需召回：结合关键词相关性 + 强度 + 新鲜度，工作区 = 当前会话 cwd 或全局 `*`。
+   * 与 rankedForInjection 不同：不过滤 90 天老化（相关就召回），但仍用新鲜度加权。
+   * 空 query 返回空（按需 = 无问不召回），避免广播噪音。query 按 token 分词后累加评分，
+   * 解决「systemd 怎么配」这类长句中只有部分词命中的召回问题。
+   * @param workspace - 当前会话 cwd；`*` 时只取全局记忆。
+   * @param query - 当前用户问题的原文（大小写不敏感）。
+   * @param limit - 候选上限。
+   * @param now - 时间基准。
+   */
+  searchForRecall(workspace: string, query: string, limit: number, now: number = Date.now()): SearchHit[] {
+    const tokens = tokenizeForRecall(query)
+    if (tokens.length === 0) return []
+    const hits: SearchHit[] = []
+    for (const [, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) continue
+      if (record.workspace !== workspace && record.workspace !== GLOBAL_WORKSPACE) continue
+      let word = 0
+      for (const tok of tokens) word += keywordScore(record, tok)
+      if (word === 0) continue
+      const score = word * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
+      hits.push({ record, score })
+    }
+    hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
+    return hits.slice(0, clampInt(limit, 8, 1, 50))
+  }
+
+  /**
+   * 按需召回的文本渲染（与 recallText 同格式，但数据源是 query 相关命中）。
+   * 无命中返回空串（零贡献，pre-step 不注入）。
+   */
+  renderRecallText(hits: readonly SearchHit[], maxChars: number): string {
+    const cap = Math.max(maxChars, 1)
+    const lines: string[] = []
+    let used = 0
+    for (const { record } of hits) {
+      const line = renderLine(record)
+      if (lines.length > 0 && used + line.length + 1 > cap) {
+        lines.push(`${line.slice(0, Math.max(0, cap - used - 1))}…`)
+        break
+      }
+      if (lines.length === 0 && line.length > cap) {
+        lines.push(`${line.slice(0, Math.max(0, cap - 1))}…`)
         break
       }
       lines.push(line)

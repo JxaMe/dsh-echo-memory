@@ -11,7 +11,6 @@ import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 // import type 即可携带该声明，不产生运行时依赖。
 import type {} from '@deepseek-ai/dsh-agent'
 import type { MemoryStore } from './store.js'
-import { GLOBAL_WORKSPACE, agentWorkspace } from './domain.js'
 import type { CaptureFeed } from './capture.js'
 
 /** 一次组装读取的注入配置（由调用方从当前设置源投影）。 */
@@ -33,26 +32,19 @@ export interface MemoryInjectionConfig {
  * @param feed - 捕获确认缓冲（按当前会话消费）。
  */
 export function memoryContextText(
-  store: MemoryStore,
-  read: () => MemoryInjectionConfig,
+  _store: MemoryStore,
+  _read: () => MemoryInjectionConfig,
   feed: CaptureFeed,
 ): (context: AssembleContext) => string {
   let warnedOnce = false
   return (context) => {
     try {
-      const { enabled, limit, maxChars } = read()
       const justCaptured = takeCapturedFor(feed, context)
-      // 确认提示独立于注入开关：捕获发生了就该让用户知道。
-      const confirmText = justCaptured.length > 0
-        ? `[记忆确认] 刚刚已自动捕获 ${justCaptured.length} 条记忆：`
-          + justCaptured.map(entry => `「${entry.content}」`).join('、')
-          + '。请在回复开头用一句话向用户确认已记住（如「已记住 ✅」），不要复述全部内容，除非用户要求。\n'
-        : ''
-      if (!enabled) return confirmText.trimEnd()
-      const workspace = agentWorkspace(context.agent) ?? GLOBAL_WORKSPACE
-      const recall = store.recallText({ workspace, limit, maxChars })
-      store.recordAssembly(true, recall.length > 0)
-      return recall.length > 0 ? confirmText + recall : confirmText.trimEnd()
+      // 仅保留捕获确认；记忆召回已迁至 agent/pre-step 按需注入（query 相关才注），避免广播噪音。
+      if (justCaptured.length === 0) return ''
+      return `[记忆确认] 刚刚已自动捕获 ${justCaptured.length} 条记忆：`
+        + justCaptured.map(entry => `「${entry.content}」`).join('、')
+        + '。请在回复开头用一句话向用户确认已记住（如「已记住 ✅」），不要复述全部内容，除非用户要求。'
     } catch (error) {
       if (!warnedOnce) {
         warnedOnce = true

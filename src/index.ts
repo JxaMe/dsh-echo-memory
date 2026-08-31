@@ -23,6 +23,7 @@ import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.j
 import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
+import { createRecallMessage, decideRecall } from './recall.js'
 import { migrateMemoryFile } from './migrate.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
@@ -132,8 +133,9 @@ export default class MemoryService extends Service {
     })
     this.registerTools()
     this.registerPrompt()
+    this.registerRecall()
     this.registerCapture()
-    console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)')
+    console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget; recall: on-demand)')
   }
 
   /**
@@ -264,6 +266,30 @@ export default class MemoryService extends Service {
           maxChars: settings.injectMaxChars,
         }
       }, this.captureFeed),
+    })
+  }
+
+  private registerRecall(): void {
+    let warnedOnce = false
+    this.ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
+      const decision = await next()
+      if (decision.kind === 'reject') return decision
+      try {
+        signal.throwIfAborted()
+        const recall = decideRecall(this.requireStore(), () => {
+          const s = this.readSettings()
+          return { enabled: s.injectEnabled, limit: s.injectLimit, maxChars: s.injectMaxChars }
+        }, agent, messages)
+        if (recall === undefined) return decision
+        const injection = createRecallMessage(recall.text, recall.hits)
+        return { ...decision, messages: [...decision.messages, injection] }
+      } catch (error) {
+        if (!warnedOnce) {
+          warnedOnce = true
+          console.warn('[dsh-echo-memory] recall handler failed; skipping injection for this instance', error)
+        }
+        return decision
+      }
     })
   }
 
