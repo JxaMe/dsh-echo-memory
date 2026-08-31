@@ -216,3 +216,22 @@ test('归一化与评分纯函数', () => {
   assert.equal(renderLine(record()), '- [fact] 部署走 systemd #deploy #systemd')
   assert.equal(renderLine(record({ strength: 3 })), '- [fact] 部署走 systemd #deploy #systemd (x3)')
 })
+test('injectionStats：只有启用时记账，命中数正确', () => {
+  const store = makeStore()
+  assert.deepEqual(store.injectionStats, { requests: 0, withContent: 0 })
+  store.recordAssembly(true, false)
+  store.recordAssembly(true, true)
+  store.recordAssembly(true, true)
+  store.recordAssembly(false, true) // 关闭不记账
+  assert.deepEqual(store.injectionStats, { requests: 3, withContent: 2 })
+})
+
+test('liveCount：只数活跃记忆，不含墓碑', async () => {
+  const store = makeStore()
+  const a = await store.save({ workspace: '/w', content: '活的' })
+  const b = await store.save({ workspace: '/w', content: '待删' })
+  assert.equal(store.liveCount(), 2)
+  await store.forget(b.id, 'tombstone')
+  assert.equal(store.liveCount(), 1)
+  assert.ok(a.id !== b.id)
+})

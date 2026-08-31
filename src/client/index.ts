@@ -38,10 +38,17 @@ const MEMORY_SETTINGS_NS_VALUE = 'memory'
 const LOCALE_NS = 'settings.memory'
 
 /**
- * 「彻底删除」RPC endpoint（与 Host 注册拼写一致；两侧各自拼写，不产生跨半侧值依赖）。
- * 无返回值即为空载荷；call 失败（RPC 层）在此抛出，卡片显示失败态。
+ * 卡片 RPC endpoints（与 Host 注册拼写一致；两侧各自拼写，不产生跨半侧值依赖）。
+ * call 失败（RPC 层）在此抛出，卡片显示失败态。
  */
 const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
+const MEMORY_STATS_ENDPOINT = 'dsh-echo-memory/stats'
+
+/** Host 返回的运行期统计载荷（与 Host memoryStats() 同形，client 侧自拼类型）。 */
+export interface MemoryStatsPayload {
+  readonly injections: { readonly requests: number; readonly withContent: number }
+  readonly memories: number
+}
 
 /** 必需服务：槽位注册、文案、连接载体、设置 scope 与远程失效转发。 */
 export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
@@ -55,6 +62,7 @@ export function apply(ctx: ClientContext): void {
   const controller = new MemoryCardController(
     ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS_VALUE }),
     () => invokePurge(ctx),
+    () => invokeStats(ctx),
   )
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
@@ -70,16 +78,35 @@ export function apply(ctx: ClientContext): void {
  * @returns 本次清除的墓碑条数；RPC 失败或业务失败均抛出。
  */
 async function invokePurge(ctx: ClientContext): Promise<number> {
+  const result = await rpcCall(ctx, MEMORY_PURGE_ENDPOINT)
+  const purged = (result as { readonly purged?: unknown }).purged
+  return typeof purged === 'number' ? purged : 0
+}
+
+/** 拉取 Host 运行期统计（注入次数/命中 + 记忆条数）；失败抛出。 */
+async function invokeStats(ctx: ClientContext): Promise<MemoryStatsPayload> {
+  const value = await rpcCall(ctx, MEMORY_STATS_ENDPOINT)
+  const injections = (value as { readonly injections?: unknown }).injections
+  const memories = (value as { readonly memories?: unknown }).memories
+  const requests = (injections as { readonly requests?: unknown } | undefined)?.requests
+  const withContent = (injections as { readonly withContent?: unknown } | undefined)?.withContent
+  if (typeof requests !== 'number' || typeof withContent !== 'number' || typeof memories !== 'number') {
+    throw new Error('dsh-echo-memory: host returned malformed stats')
+  }
+  return { injections: { requests, withContent }, memories }
+}
+
+/** 走 `/api` 共享通道调用一个 2 段式 endpoint，返回 ok 分支的 value。 */
+async function rpcCall(ctx: ClientContext, endpoint: string): Promise<unknown> {
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   if (connection === undefined) {
     throw new Error('dsh-echo-memory: connection service unavailable')
   }
-  const result = await connection.rpc.call('/api', MEMORY_PURGE_ENDPOINT, {})
+  const result = await connection.rpc.call('/api', endpoint, {})
   if (!result.ok) {
-    throw new Error(`dsh-echo-memory: purge rejected by host: ${result.error.message}`)
+    throw new Error(`dsh-echo-memory: host rejected ${endpoint}: ${result.error.message}`)
   }
-  const purged = (result.value as { readonly purged?: unknown }).purged
-  return typeof purged === 'number' ? purged : 0
+  return result.value
 }
 
 export type { MemoryCardFace, MemoryCardState, MemoryCardChoiceState, MemoryPurgeState } from './card-controller.ts'

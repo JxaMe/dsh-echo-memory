@@ -83,17 +83,18 @@ export function createCaptureHandler(
       const sessionKey = session.header.id
       const used = counts.get(sessionKey) ?? 0
       if (used >= cfg.maxPerSession) return
-      counts.set(sessionKey, used + 1)
+      counts.set(sessionKey, used + 1) // 立即占额：连续消息也防穿透
       const claimed = text.slice(index + pattern.length).replace(/^[:：,，。.\s]+/, '').trim()
       const content = claimed.length > 0 ? claimed : text.trim()
       const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
-      const sessionId = session.header.id
       void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })
         .then(() => {
           // 确认 = 真存上了：resolve 后才进缓冲（失败不报「已记住」）。
-          feed.push({ sessionId, content })
+          feed.push({ sessionId: sessionKey, content })
         })
         .catch(error => {
+          // 保存失败：回滚占用（失败不消耗会话额度），只告警不打断事件流。
+          counts.set(sessionKey, Math.max(0, (counts.get(sessionKey) ?? 1) - 1))
           console.warn('[dsh-echo-memory] auto capture failed; message skipped', error)
         })
       return

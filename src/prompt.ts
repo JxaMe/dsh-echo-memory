@@ -51,6 +51,7 @@ export function memoryContextText(
       if (!enabled) return confirmText.trimEnd()
       const workspace = agentWorkspace(context.agent) ?? GLOBAL_WORKSPACE
       const recall = store.recallText({ workspace, limit, maxChars })
+      store.recordAssembly(true, recall.length > 0)
       return recall.length > 0 ? confirmText + recall : confirmText.trimEnd()
     } catch (error) {
       if (!warnedOnce) {

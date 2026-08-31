@@ -74,6 +74,19 @@ export type MemoryPurgeState =
   | { phase: 'done'; purged: number }
   | { phase: 'failed' }
 
+/** Host 返回的运行期统计载荷（读写两侧自拼类型，不跨半侧值依赖）。 */
+export interface MemoryStatsPayload {
+  readonly injections: { readonly requests: number; readonly withContent: number }
+  readonly memories: number
+}
+
+/** 卡片统计区的瞬时状态。 */
+export type MemoryStatsState =
+  | { phase: 'idle' }
+  | { phase: 'loading' }
+  | { phase: 'done'; data: MemoryStatsPayload }
+  | { phase: 'failed' }
+
 /** 卡片的完整渲染状态。 */
 export interface MemoryCardState {
   /** 命名空间未受服务时卡片不渲染控件。 */
@@ -97,6 +110,8 @@ export interface MemoryCardState {
   deletionMode: MemoryCardChoiceState
   /** 「彻底删除」动作反馈（按钮点击后更新）。 */
   purge: MemoryPurgeState
+  /** 运行期统计（卡片展开时拉取）。 */
+  stats: MemoryStatsState
 }
 
 /** 注册侧 inject 面：hooks compartment（renderer 绑定 useMemoryCard）+ 表单动作。 */
@@ -119,6 +134,8 @@ export interface MemoryCardFace {
   discard: () => void
   /** 彻底删除所有墓碑记忆（后端 RPC，调用方先确认）。 */
   purgeTombstones: () => Promise<void>
+  /** 刷新运行期统计（卡片展开时调用；结果进 state.stats）。 */
+  refreshStats: () => void
 }
 
 /** 一条暂存编辑。 */
@@ -144,6 +161,7 @@ function initial(): MemoryCardState {
     captureMaxPerSession: { text: '', overridden: false, invalid: false },
     deletionMode: { value: 'tombstone', overridden: false },
     purge: { phase: 'idle' },
+    stats: { phase: 'idle' },
   }
 }
 
@@ -182,10 +200,12 @@ export class MemoryCardController {
   /**
    * @param scope - 绑定在 `memory` 命名空间上的设置 scope。
    * @param purgeTombstones - 彻底清除墓碑的后端动作（client 半封装 RPC；controller 保持无 ctx 依赖）。
+   * @param loadStats - 拉取运行期统计的后端动作。
    */
   constructor(
     private readonly scope: SettingsScope<MemorySettings>,
     private readonly purgeTombstones: () => Promise<number>,
+    private readonly loadStats: () => Promise<MemoryStatsPayload>,
   ) {
     this.store = createSnapshotStore(initial())
     scope.subscribe(() => this.reseed())
@@ -203,6 +223,7 @@ export class MemoryCardController {
       save: () => this.save(),
       discard: () => { this.discard() },
       purgeTombstones: () => this.purge(),
+      refreshStats: () => { void this.refreshStats() },
     }
   }
 
@@ -240,6 +261,25 @@ export class MemoryCardController {
   private emitPurge(state: MemoryPurgeState): void {
     this.store.update((draft) => {
       draft.purge = state
+    })
+  }
+
+  /** 拉取运行期统计（卡片展开时触发；失败显示失败态，不打断卡片）。 */
+  private async refreshStats(): Promise<void> {
+    const current = this.store.getSnapshot()
+    if (current.stats.phase === 'loading') return
+    this.emitStats({ phase: 'loading' })
+    try {
+      const data = await this.loadStats()
+      this.emitStats({ phase: 'done', data })
+    } catch (_statsFailure) {
+      this.emitStats({ phase: 'failed' })
+    }
+  }
+
+  private emitStats(state: MemoryStatsState): void {
+    this.store.update((draft) => {
+      draft.stats = state
     })
   }
 
@@ -340,6 +380,7 @@ export class MemoryCardController {
       captureMaxPerSession: this.textState('captureMaxPerSession'),
       deletionMode: this.choiceState('deletionMode'),
       purge: this.store.getSnapshot().purge,
+      stats: this.store.getSnapshot().stats,
     }
   }
 

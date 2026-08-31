@@ -10,6 +10,8 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import '@deepseek-ai/dsh-session'
 import s from '@deepseek-ai/schemastery'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
@@ -21,6 +23,7 @@ import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.j
 import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
+import { migrateMemoryFile } from './migrate.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
   type DeletionMode, type MemorySettings,
@@ -60,11 +63,12 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * 浏览器卡片「彻底删除」按钮的 RPC endpoint（`/api` 共享通道上的 2 段式 endpoint）。
+ * 浏览器卡片 RPC endpoints（`/api` 共享通道上的 2 段式 endpoint）。
  * 两侧拼写必须一致：host 注册与 client 调用各自拼写（跨半侧不产生值依赖，
  * 与官方 `SHELL_NS` 约定同一理由）。
  */
 const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
+const MEMORY_STATS_ENDPOINT = 'dsh-echo-memory/stats'
 
 /** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
 export default class MemoryService extends Service {
@@ -105,12 +109,14 @@ export default class MemoryService extends Service {
       setSource: (current) => { this.readSettings = current },
       onChange: () => {},
     })
-    // 浏览器卡片「彻底删除」按钮的 RPC 通道（官方 gateway 同款 intercept 模式）。
-    this.registerPurgeRpc(ctx)
+    // 浏览器卡片 RPC（彻底删除 + 统计）通道（官方 gateway 同款 intercept 模式）。
+    this.registerCardRpc(ctx)
   }
 
   /** 打开领域并注册全部能力；任何一步失败都会让插件加载失败（配置错误响亮）。 */
   protected async [Service.init](): Promise<void> {
+    // 领域版本迁移（文件级，open 之前）：schema 破坏性变更在此升级旧库。
+    await migrateMemoryFile(storageRoot(), memoryDomainSpec.version)
     const domain = await this.ctx.storageDomain.open(memoryDomainSpec)
     this.ctx.effect(() => async () => {
       await domain.close()
@@ -158,18 +164,28 @@ export default class MemoryService extends Service {
     return this.requireStore().purgeDeleted()
   }
 
-  /** 注册「彻底删除」RPC：官方 gateway 同款 intercept 模式（通道 `/api`，authority trusted-host）。 */
-  private registerPurgeRpc(ctx: Context): void {
+  /** 运行期统计（浏览器卡片展示）：注入次数/命中数 + 活跃记忆条数。 */
+  memoryStats(): { readonly injections: { readonly requests: number; readonly withContent: number }; readonly memories: number } {
+    const store = this.requireStore()
+    return { injections: store.injectionStats, memories: store.liveCount() }
+  }
+
+  /** 注册卡片 RPC（彻底删除 + 统计）：官方 gateway 同款 intercept 模式（通道 `/api`，authority trusted-host）。 */
+  private registerCardRpc(ctx: Context): void {
     ctx.inject(['connection'], (connectionCtx) => {
       connectionCtx.connection.rpc.intercept(
         '/api',
-        endpoint => endpoint === MEMORY_PURGE_ENDPOINT,
-        async () => {
+        endpoint => endpoint === MEMORY_PURGE_ENDPOINT || endpoint === MEMORY_STATS_ENDPOINT,
+        async (endpoint) => {
+          const wrap = (value: unknown) => ({ ok: true, value } as const)
           try {
-            return {
-              ok: true,
-              value: { purged: await this.purgeTombstones() },
-            } as const
+            if (endpoint === MEMORY_PURGE_ENDPOINT) {
+              return wrap({ purged: await this.purgeTombstones() })
+            }
+            if (endpoint === MEMORY_STATS_ENDPOINT) {
+              return wrap(this.memoryStats())
+            }
+            return { ok: false, error: { code: 'internal', message: `unknown endpoint: ${endpoint}`, details: {} } } as const
           } catch (error) {
             return {
               ok: false,
@@ -231,6 +247,12 @@ export default class MemoryService extends Service {
     }
     return store
   }
+}
+
+/** 存储后端根目录（与 dsh 标准装配一致：`$DSH_HOME/storages`，默认 `~/.dsh/storages`）。 */
+function storageRoot(): string {
+  const home = process.env.DSH_HOME ?? homedir()
+  return join(home, 'storages')
 }
 
 export type { MemoryKind, MemoryRecord } from './domain.js'

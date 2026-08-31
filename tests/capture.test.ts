@@ -108,6 +108,41 @@ test('按会话限流：超过 maxPerSession 后不再捕获', async () => {
   assert.equal(hits.length, 2)
 })
 
+test('保存失败：回滚配额（失败不消耗会话额度）且不报已记住', async () => {
+  // 可注入失败的 store：第一次 save 抛错，之后正常
+  class FlakyStore extends MemoryStore {
+    failNext = true
+    override async save(
+      input: Parameters<MemoryStore['save']>[0],
+      now?: number,
+    ): Promise<Awaited<ReturnType<MemoryStore['save']>>> {
+      if (this.failNext) {
+        this.failNext = false
+        throw new TypeError('injected failure')
+      }
+      return super.save(input, now)
+    }
+  }
+  const table = new FakeKvTable<string, MemoryRecord>()
+  const store = new FlakyStore(table, LIMITS)
+  const feed = new CaptureFeed()
+  const handler = createCaptureHandler(() => CONFIG, store, feed)
+  const s = session('/w', 'session-q')
+  // 真实节奏：每条消息之间等待落定（回滚在失败后、下一条消息前完成）
+  handler(s, userEvent('请记住：这条失败'))
+  await settle()
+  handler(s, userEvent('请记住：第一条'))
+  await settle()
+  handler(s, userEvent('请记住：第二条'))
+  await settle()
+  handler(s, userEvent('请记住：第三条'))
+  await settle()
+  const hits = store.search({ workspace: '/w' })
+  // 失败不占额：maxPerSession=2 下 1 次失败 + 3 次尝试 → 成功 2 条且第三条被拒
+  assert.equal(hits.length, 2)
+  assert.equal(feed.take('session-q').length, 2)
+})
+
 test('英文句式 remember that 大小写不敏感', async () => {
   const { handler, store } = makeHandler()
   handler(session('/w'), userEvent('Remember That we ship via pnpm pack'))

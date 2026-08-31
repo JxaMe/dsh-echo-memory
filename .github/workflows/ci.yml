@@ -1,0 +1,36 @@
+# 常规提交门禁：每次 push/PR 都跑 typecheck + test + build（与发版流水线同构，不发布）。
+# 保护日常提交：任何回归在合入 master 前被发现，而不是等到发版时。
+
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (strict)
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build (tsc + tsdown)
+        run: pnpm run build

@@ -9,7 +9,7 @@
  * @module dsh-echo-memory/client/card
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
@@ -232,6 +232,18 @@ function MemoryChoiceField(props: {
   )
 }
 
+/** 统计行渲染：注入命中率 + 活跃记忆条数（纯函数）。 */
+function renderStats(t: (key: MemoryKey) => string, data: { readonly injections: { readonly requests: number; readonly withContent: number }; readonly memories: number }): string {
+  const rate = data.injections.requests > 0
+    ? Math.round((data.injections.withContent / data.injections.requests) * 100)
+    : 0
+  return t('stats.line')
+    .replaceAll('{hits}', String(data.injections.withContent))
+    .replaceAll('{requests}', String(data.injections.requests))
+    .replaceAll('{rate}', String(rate))
+    .replaceAll('{memories}', String(data.memories))
+}
+
 /**
  * 渲染 dsh-echo-memory 设置卡片（默认折叠，header 点击展开；草稿独立于折叠保留）。
  * @param props - locale 文案、卡片状态快照（useMemoryCard）与表单动作。
@@ -240,6 +252,10 @@ function MemoryChoiceField(props: {
 export function MemoryPluginCard(props: MemoryPluginCardProps) {
   const [open, setOpen] = useState(false)
   ensureCardStyles()
+  // 展开时拉取一次运行期统计（重复展开会再拉，数据保鲜）。
+  useEffect(() => {
+    if (open) props.refreshStats()
+  }, [open, props])
   const { t } = props
   const state = props.useMemoryCard(snapshot => snapshot)
   if (!state.available) return null
@@ -269,6 +285,15 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
         ? (
           <div className="dshm-body">
             {!writable ? <p className="dshm-readOnly" role="status">{t('status.readOnly')}</p> : null}
+            {state.stats.phase === 'done'
+              ? (
+                <p className="dshm-hint" role="status">
+                  {renderStats(t, state.stats.data)}
+                </p>
+              )
+              : state.stats.phase === 'failed'
+                ? <p className="dshm-hint" role="status">{t('stats.failed')}</p>
+                : null}
             <MemoryBooleanField
               t={t}
               id="dsh-echo-memory-inject-enabled"

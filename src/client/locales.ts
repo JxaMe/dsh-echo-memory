@@ -38,6 +38,8 @@ export const zh = {
   'status.saving': '保存中…',
   'status.failed': '本部署没有接受这些值，已保留供你修改。',
   'status.readOnly': '本部署的设置为只读。',
+  'stats.line': '注入 {hits}/{requests} 次（{rate}%），记忆 {memories} 条',
+  'stats.failed': '统计加载失败。',
 } satisfies Record<string, string>
 
 /** `settings.memory` 命名空间的键并集。 */
@@ -81,4 +83,6 @@ export const en = {
   'status.saving': 'Saving…',
   'status.failed': 'The deployment did not accept these values; they were left for you to correct.',
   'status.readOnly': 'This deployment stores settings read-only.',
+  'stats.line': 'Injected {hits}/{requests} times ({rate}%), {memories} memories',
+  'stats.failed': 'Failed to load stats.',
 } satisfies Record<MemoryKey, string>

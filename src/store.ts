@@ -18,6 +18,14 @@ export interface StoreLimits {
   readonly tagsMax: number
 }
 
+/** 提示词注入统计（运行期内存计数，重启清零）。 */
+export interface InjectionStats {
+  /** 启用注入时的组装请求次数。 */
+  readonly requests: number
+  /** 组装时实际注入了非空记忆的次数。 */
+  readonly withContent: number
+}
+
 /** 保存一条记忆的输入；kind/source 缺省值由默认规则补齐。 */
 export interface SaveInput {
   /** 归属工作区（绝对路径）；空串归一化为 `*`。 */
@@ -138,11 +146,37 @@ export function keywordScore(record: MemoryRecord, query: string): number {
  */
 export class MemoryStore {
   private seq = 0
+  private readonly injections: { requests: number; withContent: number } = { requests: 0, withContent: 0 }
 
   constructor(
     private readonly table: KvTable<string, MemoryRecord>,
     private readonly limits: StoreLimits,
   ) {}
+
+  /** 注入统计快照（prompt 组装时由 memoryContextText 记账）。 */
+  get injectionStats(): InjectionStats {
+    return { ...this.injections }
+  }
+
+  /**
+   * 记录一次组装：启用注入时计请求数，注入了非空记忆时计命中数。
+   * @param enabled - 本次组装的注入开关（关闭不计）。
+   * @param injected - 本次是否注入了非空记忆文本。
+   */
+  recordAssembly(enabled: boolean, injected: boolean): void {
+    if (!enabled) return
+    this.injections.requests += 1
+    if (injected) this.injections.withContent += 1
+  }
+
+  /** 活跃记忆条数（不含墓碑）。 */
+  liveCount(): number {
+    let count = 0
+    for (const [, record] of this.table.entries()) {
+      if (record.deletedAt === undefined) count += 1
+    }
+    return count
+  }
 
   /**
    * 保存一条记忆。同工作区 + 同类型 + 同正文命中**未删除**的既有记录时强化
