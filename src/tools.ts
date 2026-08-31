@@ -7,9 +7,10 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { MEMORY_KINDS } from './domain.js'
+import { MEMORY_KINDS, agentWorkspace } from './domain.js'
 import type { MemoryKind } from './domain.js'
 import type { MemoryStore, SearchHit } from './store.js'
+import { tagSuffix } from './store.js'
 
 /** 记忆类型枚举（模型可见的字符串字面量）。 */
 const KIND_OPTIONS: readonly MemoryKind[] = [...MEMORY_KINDS]
@@ -22,8 +23,7 @@ function workspaceOf(
   exec: ToolRunContext,
   fallback: string,
 ): string {
-  const cwd = exec.agent?.session?.header?.cwd
-  return args.workspace ?? cwd ?? fallback
+  return args.workspace ?? agentWorkspace(exec.agent) ?? fallback
 }
 
 /** 检索结果渲染：模型可见文本（含 id，便于后续 memory_forget 引用）。 */
@@ -31,7 +31,7 @@ function renderSearch(items: readonly SearchOutputItem[]): string {
   if (items.length === 0) return '未找到匹配的记忆。'
   const lines = items.map((item, index) =>
     `${index + 1}. [${item.kind}] ${item.content}`
-    + `${item.tags.length > 0 ? ` ${item.tags.map(tag => `#${tag}`).join(' ')}` : ''}`
+    + `${tagSuffix(item.tags)}`
     + ` (id=${item.id}, x${item.strength}, ${item.workspace})`)
   return `找到 ${items.length} 条记忆：\n${lines.join('\n')}`
 }

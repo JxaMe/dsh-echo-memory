@@ -117,17 +117,26 @@ function initial(): MemoryCardState {
   }
 }
 
+/** 文本字段的解析/格式化分派表：新增文本字段只改这一处（布尔字段无文本草稿）。 */
+const textFieldCodecs: Record<MemoryCardTextField, {
+  parse(text: string): FieldWrite | undefined
+  format(value: unknown): string
+}> = {
+  capturePatterns: { parse: parsePatternsField, format: patternsDraft },
+  injectLimit: { parse: parseNumberField, format: numberDraft },
+  injectMaxChars: { parse: parseNumberField, format: numberDraft },
+  captureMaxPerSession: { parse: parseNumberField, format: numberDraft },
+}
+
 /** 文本字段：草稿 → 写入计划（undefined = 非法；布尔字段永不进入文本解析）。 */
 function parseField(field: MemoryCardField, text: string): FieldWrite | undefined {
-  if (field === 'capturePatterns') return parsePatternsField(text)
   if (field === 'injectEnabled' || field === 'captureEnabled') return undefined
-  return parseNumberField(text)
+  return textFieldCodecs[field].parse(text)
 }
 
 /** 文本字段：存储值 → 草稿文本。 */
 function formatField(field: MemoryCardTextField, value: unknown): string {
-  if (field === 'capturePatterns') return patternsDraft(value)
-  return numberDraft(value)
+  return textFieldCodecs[field].format(value)
 }
 
 /** 记忆设置控制器：scope → 快照 store + 动作。 */

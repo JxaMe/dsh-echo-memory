@@ -13,14 +13,21 @@ export const MEMORY_KINDS = ['fact', 'preference', 'project', 'session'] as cons
 /** 一条记忆的类型。 */
 export type MemoryKind = (typeof MEMORY_KINDS)[number]
 
-/** 记忆来源封闭词表：user 用户显式 / agent 工具写入 / auto 自动捕获 / imported 导入。 */
-export const MEMORY_SOURCES = ['user', 'agent', 'auto', 'imported'] as const
+/** 记忆来源封闭词表（当前生产者：memory_save 写 agent、自动捕获写 auto）。 */
+export const MEMORY_SOURCES = ['agent', 'auto'] as const
 
 /** 一条记忆的写入来源。 */
 export type MemorySource = (typeof MEMORY_SOURCES)[number]
 
 /** 无工作区归属（跨项目可用）的记忆工作区值。 */
 export const GLOBAL_WORKSPACE = '*'
+
+/** 宿主形状适配：从 agent 会话取当前工作区 cwd（prompt 组装 / 工具执行共用；无会话时 undefined）。 */
+export function agentWorkspace(
+  agent: { readonly session?: { readonly header?: { readonly cwd?: string } } } | undefined,
+): string | undefined {
+  return agent?.session?.header?.cwd
+}
 
 /**
  * 一条持久记忆。id 为插件自产的不透明字符串（`mem-<ts>-<seq>`），

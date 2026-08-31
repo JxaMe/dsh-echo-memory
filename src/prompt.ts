@@ -11,7 +11,7 @@ import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 // import type 即可携带该声明，不产生运行时依赖。
 import type {} from '@deepseek-ai/dsh-agent'
 import type { MemoryStore } from './store.js'
-import { GLOBAL_WORKSPACE } from './domain.js'
+import { GLOBAL_WORKSPACE, agentWorkspace } from './domain.js'
 
 /** 一次组装读取的注入配置（由调用方从当前设置源投影）。 */
 export interface MemoryInjectionConfig {
@@ -38,7 +38,7 @@ export function memoryContextText(
     try {
       const { enabled, limit, maxChars } = read()
       if (!enabled) return ''
-      const workspace = context.agent?.session?.header?.cwd ?? GLOBAL_WORKSPACE
+      const workspace = agentWorkspace(context.agent) ?? GLOBAL_WORKSPACE
       return store.recallText({ workspace, limit, maxChars })
     } catch (error) {
       if (!warnedOnce) {

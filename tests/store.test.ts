@@ -30,7 +30,7 @@ function record(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
     content: '部署走 systemd',
     tags: Object.freeze(['deploy', 'systemd']),
     strength: 1,
-    source: 'user',
+    source: 'agent',
     createdAt: 1000,
     updatedAt: 1000,
   }

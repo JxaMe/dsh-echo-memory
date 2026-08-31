@@ -114,11 +114,11 @@ function tieBreak(a: MemoryRecord, b: MemoryRecord): number {
 export function keywordScore(record: MemoryRecord, query: string): number {
   const q = query.trim().toLowerCase()
   if (q.length === 0) return 1
-  let word = 0
-  if (record.tags.includes(q)) word += 8
+  let score = 0
+  if (record.tags.includes(q)) score += 8
   if (q.length >= 2) {
     for (const tag of record.tags) {
-      if (tag.startsWith(q)) word += 4
+      if (tag.startsWith(q)) score += 4
     }
   }
   const content = record.content.toLowerCase()
@@ -128,8 +128,8 @@ export function keywordScore(record: MemoryRecord, query: string): number {
     occurrences += 1
     index = content.indexOf(q, index + q.length)
   }
-  word += occurrences * 2
-  return word
+  score += occurrences * 2
+  return score
 }
 
 /**
@@ -271,9 +271,13 @@ export class MemoryStore {
   }
 }
 
-/** 一行注入文本的渲染（纯函数，供 recallText 与检索结果复用语义）。 */
+/** 标签后缀渲染：` #tag #tag`（无标签返回空串）；召回文本与工具检索渲染共用，防漂移。 */
+export function tagSuffix(tags: readonly string[]): string {
+  return tags.length > 0 ? ` ${tags.map(tag => `#${tag}`).join(' ')}` : ''
+}
+
+/** 一行注入文本的渲染（纯函数）。 */
 export function renderLine(record: MemoryRecord): string {
-  const tags = record.tags.length > 0 ? ` ${record.tags.map(tag => `#${tag}`).join(' ')}` : ''
   const strength = record.strength > 1 ? ` (x${record.strength})` : ''
-  return `- [${record.kind}] ${record.content}${tags}${strength}`
+  return `- [${record.kind}] ${record.content}${tagSuffix(record.tags)}${strength}`
 }

@@ -27,7 +27,6 @@ export const zh = {
   'status.saving': '保存中…',
   'status.failed': '本部署没有接受这些值，已保留供你修改。',
   'status.readOnly': '本部署的设置为只读。',
-  'status.unavailable': '记忆设置暂不可用',
 } satisfies Record<string, string>
 
 /** `settings.memory` 命名空间的键并集。 */
@@ -60,5 +59,4 @@ export const en = {
   'status.saving': 'Saving…',
   'status.failed': 'The deployment did not accept these values; they were left for you to correct.',
   'status.readOnly': 'This deployment stores settings read-only.',
-  'status.unavailable': 'Memory settings are unavailable',
 } satisfies Record<MemoryKey, string>
