@@ -6,12 +6,13 @@
  * @module dsh-echo-memory/client
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only：pull ctx.settingsScope 的 Context merge。
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only：pull `settings.plugin.item` 的 SlotMap 声明（本卡片注册的槽位）。
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only：pull client 侧 `ctx.connection` 句柄类型（值不入包）。
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'

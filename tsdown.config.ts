@@ -8,16 +8,16 @@
  */
 import type { UserConfig } from 'tsdown'
 
-/** 官方 platform.ts 的基线外部：shell 共享模块表条目 + 预加载条目。 */
+/** 官方 platform.ts 的基线外部：shell 共享模块表条目 (alpha.2: dsh-client-runtime -> dsh-client-store) */
 const BASELINE_EXTERNALS: ReadonlySet<string> = new Set([
   'react',
   'react/jsx-runtime',
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-runtime/client',
 ])
 
 export default [

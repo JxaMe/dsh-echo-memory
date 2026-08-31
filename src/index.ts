@@ -14,7 +14,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import '@deepseek-ai/dsh-session'
 import s from '@deepseek-ai/schemastery'
-import { installSettingsSection } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 // Type-only：pull `ctx.connection` 的 Context merge 与 RPC 类型（host 侧通道注册）。
 import type { HostConnectionRpc } from '@deepseek-ai/dsh-client-connection'
 import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
@@ -105,9 +105,12 @@ export default class MemoryService extends Service {
     this.readSettings = () => this.settingsEntry
     // 设置分节：schema 默认 < 组合层 base（本行 cordis.yml 配置）< 用户分节。
     // 消费方（注入提供方、捕获监听器、删除执行）每次现读解析值，因此更改即时生效。
-    installSettingsSection(ctx, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA, this.settingsEntry, {
-      setSource: (current) => { this.readSettings = current },
-      onChange: () => {},
+    // alpha.2 起使用 ctx.settings.installSection(owner, ns, schema, entry, hooks)
+    ctx.inject(['settings'], (settingsCtx) => {
+      settingsCtx.settings.installSection(ctx, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA, this.settingsEntry, {
+        setSource: (current: () => MemorySettings) => { this.readSettings = current },
+        onChange: () => {},
+      })
     })
     // 浏览器卡片 RPC（彻底删除 + 统计）通道（官方 gateway 同款 intercept 模式）。
     this.registerCardRpc(ctx)
@@ -170,13 +173,13 @@ export default class MemoryService extends Service {
     return { injections: store.injectionStats, memories: store.liveCount() }
   }
 
-  /** 注册卡片 RPC（彻底删除 + 统计）：官方 gateway 同款 intercept 模式（通道 `/api`，authority trusted-host）。 */
+  /** 注册卡片 RPC（彻底删除 + 统计）：alpha.2 起 intercept 仅 3 参，无 authority 选项 */
   private registerCardRpc(ctx: Context): void {
     ctx.inject(['connection'], (connectionCtx) => {
       connectionCtx.connection.rpc.intercept(
         '/api',
         endpoint => endpoint === MEMORY_PURGE_ENDPOINT || endpoint === MEMORY_STATS_ENDPOINT,
-        async (endpoint) => {
+        async (endpoint, _payload, _signal) => {
           const wrap = (value: unknown) => ({ ok: true, value } as const)
           try {
             if (endpoint === MEMORY_PURGE_ENDPOINT) {
@@ -197,7 +200,6 @@ export default class MemoryService extends Service {
             } as const
           }
         },
-        { authority: 'trusted-host' },
       )
     })
   }

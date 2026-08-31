@@ -7,13 +7,12 @@
  */
 
 import s from '@deepseek-ai/schemastery'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 
 /** 设置命名空间的值（Host 注册键与浏览器卡片 `key` 必须拼写一致）。 */
 export const MEMORY_SETTINGS_NS_VALUE = 'memory'
 
-/** 设置命名空间的品牌化 id。 */
-export const MEMORY_SETTINGS_NS = settingsNamespace(MEMORY_SETTINGS_NS_VALUE)
+/** 设置命名空间（alpha.2 起直接使用字符串字面量，无需 settingsNamespace 品牌化）。 */
+export const MEMORY_SETTINGS_NS = MEMORY_SETTINGS_NS_VALUE
 
 /** 触发自动捕获的默认句式（与插件 Config 的 capturePatterns 缺省共享）。 */
 export const DEFAULT_CAPTURE_PATTERNS: readonly string[] = Object.freeze([

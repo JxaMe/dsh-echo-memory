@@ -6,11 +6,8 @@
  * @module dsh-echo-memory/client/card-controller
  */
 
-import {
-  createSnapshotStore,
-  type SettingsScope,
-  type SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { DeletionMode } from '../settings.ts'
 import type { MemorySettings } from '../settings.ts'
 import {
