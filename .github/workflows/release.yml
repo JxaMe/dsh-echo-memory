@@ -60,8 +60,25 @@ jobs:
           name: dsh-echo-memory-tgz
           path: dsh-echo-memory-*.tgz
 
+      - name: Generate release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          {
+            echo "## 更新记录"
+            echo ""
+            PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+            RANGE="${PREV:+$PREV..}HEAD"
+            git log --reverse --format='- %s' "$RANGE"
+            echo ""
+            if [ -n "$PREV" ]; then
+              echo "**完整对比**: https://github.com/${{ github.repository }}/compare/$PREV...${{ github.ref_name }}"
+            fi
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dsh-echo-memory-*.tgz
+          body_path: release-notes.md
