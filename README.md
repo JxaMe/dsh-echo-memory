@@ -43,7 +43,7 @@ interface MemoryRecord {
   content: string       // 模型可见正文（≤ contentMaxChars）
   tags: readonly string[]  // 小写去重（≤ tagsMax）
   strength: number      // 重复保存 +1
-  source: 'user' | 'agent' | 'auto' | 'imported'
+  source: 'agent' | 'auto'  // 写入来源：工具写入 / 自动捕获
   createdAt: number
   updatedAt: number
 }
