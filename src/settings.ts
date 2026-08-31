@@ -15,6 +15,11 @@ export const MEMORY_SETTINGS_NS_VALUE = 'memory'
 /** 设置命名空间的品牌化 id。 */
 export const MEMORY_SETTINGS_NS = settingsNamespace(MEMORY_SETTINGS_NS_VALUE)
 
+/** 触发自动捕获的默认句式（与插件 Config 的 capturePatterns 缺省共享）。 */
+export const DEFAULT_CAPTURE_PATTERNS: readonly string[] = Object.freeze([
+  '请记住', '记住：', '记住:', 'remember that', 'please remember', 'remember:',
+])
+
 /** 用户在设置面板可编辑的记忆行为子集（其余参数留在 cordis.yml 行配置）。 */
 export interface MemorySettings {
   /** 是否向每次模型请求注入记忆上下文。 */
@@ -37,6 +42,6 @@ export const MEMORY_SETTINGS_SCHEMA: s<MemorySettings> = s.object({
   injectLimit: s.number().step(1).min(1).max(50).default(8),
   injectMaxChars: s.number().step(1).min(100).max(20000).default(1500),
   captureEnabled: s.boolean().default(true),
-  capturePatterns: s.array(s.string()).default(['请记住', '记住：', '记住:', 'remember that', 'please remember', 'remember:']),
+  capturePatterns: s.array(s.string()).default([...DEFAULT_CAPTURE_PATTERNS]),
   captureMaxPerSession: s.number().step(1).min(1).max(1000).default(20),
 })

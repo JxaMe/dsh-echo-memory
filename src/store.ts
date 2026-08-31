@@ -105,6 +105,11 @@ export function recencyFactor(updatedAt: number, now: number): number {
   return Math.max(0.1, 1 - (ageMs / FRESH_WINDOW_MS) * 0.9)
 }
 
+/** 排序兜底：主键同分时按 updatedAt 降序、id 升序（search 与注入共用）。 */
+function tieBreak(a: MemoryRecord, b: MemoryRecord): number {
+  return b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+}
+
 /** 关键词评分：标签精确 +8/个、标签前缀（≥2 字符）+4/个、正文子串 +2/次（上限 5 次）；无匹配返回 0。 */
 export function keywordScore(record: MemoryRecord, query: string): number {
   const q = query.trim().toLowerCase()
@@ -204,10 +209,7 @@ export class MemoryStore {
       const score = word * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
       hits.push({ record, score })
     }
-    hits.sort((a, b) =>
-      b.score - a.score
-      || b.record.updatedAt - a.record.updatedAt
-      || (a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0))
+    hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
     return hits.slice(0, limit)
   }
 
@@ -224,10 +226,7 @@ export class MemoryStore {
       const rank = record.strength * recencyFactor(record.updatedAt, now)
       candidates.push({ record, rank })
     }
-    candidates.sort((a, b) =>
-      b.rank - a.rank
-      || b.record.updatedAt - a.record.updatedAt
-      || (a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0))
+    candidates.sort((a, b) => b.rank - a.rank || tieBreak(a.record, b.record))
     return candidates.slice(0, clampInt(limit, 8, 1, 50))
   }
 

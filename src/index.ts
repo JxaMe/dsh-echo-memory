@@ -13,15 +13,14 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import '@deepseek-ai/dsh-session'
 import s from '@deepseek-ai/schemastery'
 import { installSettingsSection } from '@deepseek-ai/dsh-settings'
-import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import { memoryDomainSpec, GLOBAL_WORKSPACE, type MemoryRecord } from './domain.js'
+import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
 import { memoryTools } from './tools.js'
 import { createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
 import {
-  MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA, type MemorySettings,
+  DEFAULT_CAPTURE_PATTERNS, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA, type MemorySettings,
 } from './settings.js'
 
 /** 插件配置：所有部署可调参数都经 cordis.yml 行配置提供，无硬编码 tunable。 */
@@ -66,7 +65,7 @@ export default class MemoryService extends Service {
     injectMaxChars: s.number().step(1).min(100).max(20000).default(1500),
     injectOrder: s.number().step(1).default(10),
     captureEnabled: s.boolean().default(true),
-    capturePatterns: s.array(s.string()).default(['请记住', '记住：', '记住:', 'remember that', 'please remember', 'remember:']),
+    capturePatterns: s.array(s.string()).default([...DEFAULT_CAPTURE_PATTERNS]),
     captureMaxPerSession: s.number().step(1).min(1).max(1000).default(20),
     contentMaxChars: s.number().step(1).min(20).max(2000).default(500),
     tagsMax: s.number().step(1).min(0).max(32).default(8),
@@ -76,7 +75,6 @@ export default class MemoryService extends Service {
   private readonly config: Config
   private readonly settingsEntry: MemorySettings
   private readSettings: () => MemorySettings
-  private table: KvTable<string, MemoryRecord> | undefined
   private store: MemoryStore | undefined
 
   /**
@@ -103,7 +101,6 @@ export default class MemoryService extends Service {
       await domain.close()
     }, 'dsh-memory.domainClose')
     const table = domain.table('memories')
-    this.table = table
     this.store = new MemoryStore(table, {
       contentMaxChars: this.config.contentMaxChars,
       tagsMax: this.config.tagsMax,
