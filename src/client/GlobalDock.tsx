@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ElephantIcon } from './ElephantIcon.tsx'
+import { elephantImage } from './elephantImage.ts'
 
 type RecallHit = { id: string; kind: string; content: string; tags: readonly string[]; strength: number }
 type LastRecall = { at: number; query: string; hits: RecallHit[] }
 type MemoryRecord = { id: string; content: string; kind: string; tags: readonly string[]; strength: number; updatedAt: number; workspace: string }
 
 const STORAGE_KEY = 'dshm-dock-pos'
-const DOT_SIZE = 36
+const DOT_SIZE = 44
 
 function splitTitle(content: string): { title: string; body: string } {
   const raw = content.trim()
@@ -142,7 +142,7 @@ export function GlobalDock() {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid var(--dsw-alias-border-l2)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ElephantIcon size={16} />
+            <img src={elephantImage} alt="" style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
             <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--dsw-alias-label-primary)' }}>记忆</span>
             <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', background: 'var(--dsw-alias-bg-layer-3)', padding: '1px 6px', borderRadius: '999px' }}>{items.length}</span>
           </div>
@@ -382,8 +382,8 @@ export function GlobalDock() {
         }}
         style={{
           position: 'fixed',
-          width: '36px',
-          height: '36px',
+          width: '44px',
+          height: '44px',
           borderRadius: '999px',
           border: '1px solid var(--dsw-alias-border-l2)',
           background: 'var(--dsw-alias-bg-layer-2)',
@@ -396,11 +396,13 @@ export function GlobalDock() {
           zIndex: 9999,
           touchAction: 'none',
           userSelect: 'none',
+          overflow: 'hidden',
+          padding: 0,
           ...posStyle,
         }}
         title="记忆管理 · 点击打开 / 拖动移动 / 双击复位"
       >
-        <ElephantIcon size={20} />
+        <img src={elephantImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }} />
       </button>
     )
   }
@@ -447,8 +449,8 @@ export function GlobalDock() {
         }}
         style={{
           position: 'fixed',
-          width: '36px',
-          height: '36px',
+          width: '44px',
+          height: '44px',
           borderRadius: '999px',
           border: '1px solid var(--dsw-alias-border-l2)',
           background: 'var(--dsw-alias-bg-layer-2)',
@@ -461,11 +463,13 @@ export function GlobalDock() {
           zIndex: 9999,
           touchAction: 'none',
           userSelect: 'none',
+          overflow: 'hidden',
+          padding: 0,
           ...posStyle,
         }}
         title="已召回 · 点击打开记忆管理 / 拖动移动 / 双击复位"
       >
-        <ElephantIcon size={20} />
+        <img src={elephantImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }} />
       </button>
     )
   }
@@ -496,7 +500,7 @@ export function GlobalDock() {
         zIndex: 9999,
       }}
     >
-      <div style={{ paddingTop: '1px' }}><ElephantIcon size={16} /></div>
+      <div style={{ paddingTop: '1px' }}><img src={elephantImage} alt="" style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover', display: 'block' }} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
           {titleText && (
