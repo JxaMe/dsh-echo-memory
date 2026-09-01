@@ -18,6 +18,7 @@ import type { MemoryCardTextField } from './card-controller.ts'
 import type { DeletionMode } from '../settings.ts'
 import type { MemoryKey } from './locales.ts'
 import { MemoryDockPreview, ensureDockStyles } from './MemoryDock.tsx'
+import { formatRelativeTime } from './card-util.ts'
 import pkg from '../../package.json' with { type: 'json' }
 
 /** 卡片组件 props：槽位运行时份额 + locale 份额 + 插槽 inject 面。 */
@@ -265,6 +266,9 @@ function renderStats(t: (key: MemoryKey) => string, data: { readonly injections:
  */
 export function MemoryPluginCard(props: MemoryPluginCardProps) {
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState('')
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   ensureCardStyles()
   ensureDockStyles()
   // 展开时拉取一次运行期统计与回收站（重复展开会再拉，数据保鲜）。
@@ -274,6 +278,27 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
       props.refreshRecycle()
     }
   }, [open, props])
+  const handleCopy = (id: string, text: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id)
+      setTimeout(() => setCopiedId(prev => prev === id ? null : prev), 1200)
+    })
+  }
+  const startEdit = (id: string, content: string) => {
+    setEditingId(id)
+    setEditingContent(content)
+  }
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditingContent('')
+  }
+  const saveEdit = () => {
+    if (editingId === null) return
+    const c = editingContent.trim()
+    if (c.length === 0) return
+    void props.updateOne(editingId, { content: c })
+    cancelEdit()
+  }
   const { t } = props
   const state = props.useMemoryCard(snapshot => snapshot)
   if (!state.available) return null
@@ -451,7 +476,22 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                       : state.recycle.phase === 'failed'
                         ? <p className="dshm-invalid">{t('status.recycle.failed')}</p>
                         : state.recycle.phase === 'done' && state.recycle.items.length === 0
-                          ? <p className="dshm-hint">{t('field.recycle.empty')}</p>
+                          ? (
+                            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                              <div style={{ fontSize: '28px', lineHeight: 1 }}>🗑️</div>
+                              <p className="dshm-hint" style={{ marginTop: '6px' }}>{t('field.recycle.empty')}</p>
+                              {state.stats.phase === 'done' && state.stats.data.memories === 0 ? (
+                                <div style={{ marginTop: '8px' }}>
+                                  <p className="dshm-hint">试试说：</p>
+                                  <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap', marginTop: '4px' }}>
+                                    {['记住：这个项目用 pnpm', '记住：VPS 在 192.168.1.10', '记住：偏好简洁回复'].map(ex => (
+                                      <button key={ex} type="button" className="dshm-badge" style={{ cursor: 'pointer', border: 'none' }} onClick={() => void navigator.clipboard.writeText(ex)}>{ex}</button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          )
                           : state.recycle.phase === 'done'
                             ? (
                               <>
@@ -460,15 +500,30 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                                   {state.recycle.items.map(item => (
                                     <div key={item.id} className="dshm-recycleItem">
                                       <div className="dshm-recycleContent">
-                                        <div>{item.content}</div>
-                                        <div className="dshm-recycleMeta">{item.kind} · {item.workspace}{item.tags.length > 0 ? ` · #${item.tags.join(' #')}` : ''} · {new Date(item.deletedAt).toLocaleString()}</div>
+                                        {editingId === item.id ? (
+                                          <textarea className="dshm-input" style={{ width: '100%', minHeight: '56px' }} value={editingContent} onChange={e => setEditingContent(e.target.value)} />
+                                        ) : (
+                                          <div>{item.content}</div>
+                                        )}
+                                        <div className="dshm-recycleMeta" title={new Date(item.deletedAt).toLocaleString()}>{item.kind} · {item.workspace}{item.tags.length > 0 ? ` · #${item.tags.join(' #')}` : ''} · {formatRelativeTime(item.deletedAt)}</div>
                                       </div>
                                       <div className="dshm-recycleActions">
-                                        <button type="button" className="dshm-btn dshm-btnSmall" disabled={!writable} onClick={() => { void props.restoreOne(item.id) }}>{t('action.recycle.restore')}</button>
-                                        <button type="button" className="dshm-btn dshm-btnSmall dshm-danger" disabled={!writable} onClick={() => {
-                                          if (!window.confirm(t('action.recycle.purgeOne.confirm'))) return
-                                          void props.purgeOne(item.id)
-                                        }}>{t('action.recycle.purgeOne')}</button>
+                                        {editingId === item.id ? (
+                                          <>
+                                            <button type="button" className="dshm-btn dshm-btnSmall dshm-save" onClick={saveEdit}>保存</button>
+                                            <button type="button" className="dshm-btn dshm-btnSmall" onClick={cancelEdit}>取消</button>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <button type="button" className="dshm-btn dshm-btnSmall" disabled={!writable} title="复制" onClick={() => handleCopy(item.id, item.content)}>{copiedId === item.id ? '已复制' : '⎘'}</button>
+                                            <button type="button" className="dshm-btn dshm-btnSmall" disabled={!writable} onClick={() => startEdit(item.id, item.content)}>✎</button>
+                                            <button type="button" className="dshm-btn dshm-btnSmall" disabled={!writable} onClick={() => { void props.restoreOne(item.id) }}>{t('action.recycle.restore')}</button>
+                                            <button type="button" className="dshm-btn dshm-btnSmall dshm-danger" disabled={!writable} onClick={() => {
+                                              if (!window.confirm(t('action.recycle.purgeOne.confirm'))) return
+                                              void props.purgeOne(item.id)
+                                            }}>{t('action.recycle.purgeOne')}</button>
+                                          </>
+                                        )}
                                       </div>
                                     </div>
                                   ))}

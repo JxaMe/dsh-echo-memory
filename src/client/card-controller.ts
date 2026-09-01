@@ -161,6 +161,8 @@ export interface MemoryCardFace {
   restoreOne: (id: string) => Promise<void>
   /** 单条墓碑彻底删除。 */
   purgeOne: (id: string) => Promise<void>
+  /** 更新一条记忆。 */
+  updateOne: (id: string, patch: { content?: string }) => Promise<void>
 }
 
 /** 一条暂存编辑。 */
@@ -238,6 +240,7 @@ export class MemoryCardController {
     private readonly loadRecycle: () => Promise<readonly RecycleItem[]> = async () => [],
     private readonly restoreOneFn: (id: string) => Promise<boolean> = async () => false,
     private readonly purgeOneFn: (id: string) => Promise<boolean> = async () => false,
+    private readonly updateOneFn: (id: string, patch: { content?: string }) => Promise<boolean> = async () => false,
   ) {
     this.store = createSnapshotStore(initial())
     scope.subscribe(() => this.reseed())
@@ -259,6 +262,7 @@ export class MemoryCardController {
       refreshRecycle: () => { void this.refreshRecycle() },
       restoreOne: (id) => this.restoreOne(id),
       purgeOne: (id) => this.purgeOne(id),
+      updateOne: (id, patch) => this.updateOne(id, patch),
     }
   }
 
@@ -332,6 +336,11 @@ export class MemoryCardController {
 
   private async purgeOne(id: string): Promise<void> {
     try { await this.purgeOneFn(id) } catch {}
+    await this.refreshRecycle()
+  }
+
+  private async updateOne(id: string, patch: { content?: string }): Promise<void> {
+    try { await this.updateOneFn(id, patch) } catch {}
     await this.refreshRecycle()
   }
 

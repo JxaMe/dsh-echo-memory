@@ -58,6 +58,7 @@ export function apply(ctx: ClientContext): void {
     () => invokeRecycle(ctx),
     (id) => invokeRestore(ctx, id),
     (id) => invokePurgeOne(ctx, id),
+    (id, patch) => invokeUpdate(ctx, id, patch),
   )
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
@@ -116,6 +117,13 @@ async function invokePurgeOne(_ctx: ClientContext, id: string): Promise<boolean>
   if (!res.ok) throw new Error(`purge-one failed HTTP ${res.status}`)
   const value = await res.json() as unknown
   return Boolean((value as { readonly purged?: unknown }).purged)
+}
+
+async function invokeUpdate(_ctx: ClientContext, id: string, patch: { content?: string }): Promise<boolean> {
+  const res = await fetch('/api/dsh-echo-memory/update', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id, ...patch }) })
+  if (!res.ok) throw new Error(`update failed HTTP ${res.status}`)
+  const value = await res.json() as unknown
+  return Boolean((value as { readonly updated?: unknown }).updated)
 }
 
 

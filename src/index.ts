@@ -197,6 +197,11 @@ export default class MemoryService extends Service {
     return this.requireStore().purgeOne(id)
   }
 
+  /** 更新记忆 */
+  updateMemory(id: string, patch: { content?: string; tags?: readonly string[] }): Promise<boolean> {
+    return this.requireStore().update(id, patch)
+  }
+
   /** 运行期统计（浏览器卡片展示）：注入次数/命中数 + 活跃记忆条数。 */
   memoryStats(): { readonly injections: { readonly requests: number; readonly withContent: number }; readonly memories: number } {
     const store = this.requireStore()
@@ -278,6 +283,28 @@ export default class MemoryService extends Service {
             const purged = await this.purgeOne(id)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ purged }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/update',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const body = await readJsonBody(_req) as { id?: unknown; content?: unknown; tags?: unknown }
+            const id = typeof body.id === 'string' ? body.id : ''
+            if (!id) throw new Error('missing id')
+            const content = typeof body.content === 'string' ? body.content : undefined
+            const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
+            const patch: { content?: string; tags?: readonly string[] } = {}
+            if (content !== undefined) patch.content = content
+            if (tags !== undefined) patch.tags = tags
+            const updated = await this.updateMemory(id, patch)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ updated }))
           } catch (error) {
             res.writeHead(500, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: String(error) }))

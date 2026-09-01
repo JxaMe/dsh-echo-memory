@@ -47,3 +47,32 @@ export function parsePatternsField(text: string): FieldWrite {
 export function booleanDraft(value: unknown): boolean {
   return value === true
 }
+
+/** 相对时间：刚刚/5分钟前/2小时前/3天前/2026-09-01 */
+export function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3600_000) return `${Math.floor(diff / 60000)}分钟前`
+  if (diff < 86400_000) return `${Math.floor(diff / 3600000)}小时前`
+  if (diff < 30 * 86400_000) return `${Math.floor(diff / 86400000)}天前`
+  return new Date(ts).toLocaleDateString()
+}
+
+/** 关键词高亮：将文本中匹配 query 的片段用 <mark> 包裹（大小写不敏感）。 */
+export function highlightMatches(text: string, query: string): string {
+  const q = query.trim()
+  if (q.length === 0 || q.length > 20) return text
+  const lower = text.toLowerCase()
+  const ql = q.toLowerCase()
+  let out = ''
+  let idx = 0
+  let pos = lower.indexOf(ql, idx)
+  while (pos !== -1) {
+    out += text.slice(idx, pos) + '<mark class="dshm-mark">' + text.slice(pos, pos + q.length) + '</mark>'
+    idx = pos + q.length
+    pos = lower.indexOf(ql, idx)
+    if (out.length > 2000) break
+  }
+  out += text.slice(idx)
+  return out
+}

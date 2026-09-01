@@ -352,6 +352,18 @@ export class MemoryStore {
     return this.table.delete(id)
   }
 
+  /** 更新一条记忆的正文/标签（保留 strength/source/时间，刷新 updatedAt）。 */
+  async update(id: string, patch: { content?: string; tags?: readonly string[] }, now: number = Date.now()): Promise<boolean> {
+    const rec = this.table.get(id)
+    if (rec === undefined) return false
+    const content = patch.content !== undefined ? normalizeContent(patch.content, this.limits.contentMaxChars) : rec.content
+    if (content.length === 0) return false
+    const tags = patch.tags !== undefined ? normalizeTags(patch.tags, this.limits.tagsMax) : rec.tags
+    const next: MemoryRecord = { ...rec, content, tags, updatedAt: now }
+    await this.table.put(id, next)
+    return true
+  }
+
   /**
    * 检索记忆：按查询关键词评分（标签精确 > 标签前缀 > 正文子串），
    * 乘以强度与新鲜度因子后降序，同分按 updatedAt 降序、id 升序。
