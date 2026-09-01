@@ -22,8 +22,19 @@ export interface MemoryMigration {
   readonly up: (record: unknown) => unknown
 }
 
-/** 当前无级间迁移（schema v1 至今向后兼容）。将来破坏性变更在此追加：{ from: 1, up: ... }。 */
-export const MEMORY_MIGRATIONS: readonly MemoryMigration[] = Object.freeze([])
+/** v1→v2：补 embedding 字段占位（旧库无向量，回退到 BM25）。 */
+export const MEMORY_MIGRATIONS: readonly MemoryMigration[] = Object.freeze([
+  {
+    from: 1,
+    up: (record: unknown) => {
+      const r = record as Record<string, unknown>
+      // 旧记录无 embedding，补 undefined 保持校验通过；后台回填会异步补向量
+      if (!('embedding' in r)) r['embedding'] = undefined
+      if (!('embeddingAt' in r)) r['embeddingAt'] = undefined
+      return r
+    },
+  },
+])
 
 /** 迁移目标文件名（与存储领域的 unit 名一致）。 */
 const UNIT_FILE = 'memory.json'

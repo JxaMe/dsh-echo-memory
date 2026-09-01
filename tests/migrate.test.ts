@@ -48,7 +48,8 @@ test('文件版本高于代码：拒绝降级', async () => {
 test('版本落后但无迁移链：响亮拒绝', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
   try {
-    assert.equal(MEMORY_MIGRATIONS.length, 0) // 当前确实无链
+    // 当前有 1→2 链，但 0→1 仍无链，0→1 应失败
+    assert.ok(MEMORY_MIGRATIONS.some(m => m.from === 1))
     await writeFile(join(dir, 'memory.json'), file(0, {}))
     await assert.rejects(() => migrateMemoryFile(dir, 1), /no migration chain|missing migration/)
   } finally {

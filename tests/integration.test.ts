@@ -78,7 +78,7 @@ test('集成：保存→落盘形状→重启持久化→墓碑→purge 物理�
 
     const disk1 = JSON.parse(await readFile(gen1.file, 'utf8'))
     assert.equal(disk1.unit.name, 'memory')
-    assert.equal(disk1.unit.version, 1)
+    assert.equal(disk1.unit.version, 2)
     assert.equal(Object.keys(disk1.tables.memories).length, 2)
 
     // 工具层：search 规范输出（items 数组，字段齐全）

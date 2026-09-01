@@ -13,7 +13,7 @@
 | **记住** | 对话里说「记住：……」自动落库；重复说同一句会强化（权重 +1）而不是重复存储 |
 | **检索** | 让 agent「搜一下关于 xx 的记忆」（关键词评分，无需向量库） |
 | **删除** | 让 agent「把那条删掉」（删除方式由设置面板的「删除模式」决定） |
-| **按需想起** | 与当前问题相关时才注入（`agent/pre-step` 按 query 检索，工作区 + 全局、关键词 + 强度 + 新鲜度加权，无关不注入，避免与 `AGENTS.md` 的常驻公告撞车） |
+| **按需想起** | 只在相关时才注入，无关零打扰。问 `VPS 怎么连` 就只带 VPS，问 `DSH 更新` 就一条不带。背后四步：① 聪明数词（稀有词分高）② 同义词联想（搜“部署”也能找到含“systemd”的记忆，搜“前端”也能带上“react”）③ 说得越多越靠前 ④ 越新越靠前；有 `DEEPSEEK_API_KEY` 时叠加远端语义，失败自动回本地 |
 | **设置** | 设置 → 插件 → 插件配置，在线调整、保存即生效 |
 
 ## 🧠 使用
@@ -58,14 +58,12 @@
 2. 若因构建许可失败，按报错提示把 allowBuilds 条目加入本 profile 的 pnpm-workspace.yaml 后重试同一条命令；
 3. 确认 node_modules/dsh-echo-memory/lib/ 存在（index.js 与 client.js，构建产物）；
 4. 确认本 profile 的 package.json 里 dsh.profile.bundles 数组已含 "dsh-echo-memory"；
-5. 重启 DSH 服务使其生效（按你环境的服务管理方式重启，会中断当前会话），然后确认：
-   - 服务日志出现 [dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)；
-   - WebUI 设置 → 插件（第一个「插件」导航）→ 插件配置 出现「记忆（dsh-echo-memory）」卡片。
+5. 重启 DSH 服务使其生效（按你环境的服务管理方式重启，会中断当前会话），然后确认服务日志出现 [dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget)；
 
 完成后向我报告每步结果，有任何一步失败就停下来说明原因。
 ````
 
-**验证是否装好**：日志出现 `[dsh-echo-memory] loaded`；设置页出现「记忆（dsh-echo-memory）」卡片；新会话让 agent 用 memory_search 试搜任意词。不想动主服务时，可先起独立验证实例：`dsh --profile web --port 3999 --no-open`。
+**验证是否装好**：日志出现 `[dsh-echo-memory] loaded`；设置页出现「记忆（dsh-echo-memory）」卡片；新会话让 agent 用 memory_search 试搜任意词。
 
 ## 📦 数据存储
 
@@ -99,12 +97,6 @@ dsh plugin --profile web remove dsh-echo-memory
 ```
 
 记忆数据 `memory.json` **不会被自动删除**，想清空就手动删掉该文件；`settings.yaml` 里残留的 `memory:` 段无害，可手动删除。
-
-## ⚠️ 已知限制
-
-- 检索与按需召回是**确定性关键词评分 + 分词**：`systemd 怎么配` 会拆成 `systemd`/`怎么配` 累加命中，字面不相近的同义仍搜不到（向量语义召回在计划中）。
-- 自动捕获只认「记住：」这类**显式句式**，不做 LLM 自动提炼（换来零 Token 开销、行为可预期）。
-- 存储无跨进程写锁：不要多个 DSH 进程同时写同一 profile。
 
 ## License
 

@@ -54,6 +54,10 @@ export interface MemoryRecord {
   readonly updatedAt: number
   /** 墓碑删除时间（Unix epoch 毫秒）；存在即已标记删除（检索/注入不可见，purge 时物理清除）。 */
   readonly deletedAt?: number | undefined
+  /** 语义向量（DeepSeek embedding，1024 维示例）；无 Key 或旧版本时 undefined，回退到 BM25。 */
+  readonly embedding?: readonly number[] | undefined
+  /** 向量生成时间（用于判断是否需重算）。 */
+  readonly embeddingAt?: number | undefined
 }
 
 const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
@@ -71,6 +75,8 @@ export const memoryRecordSchema = z.object({
   updatedAt: nonNegativeSafeInteger,
   // 可选字段：旧数据无此键，解读为未删除；不 bump 领域版本（向后兼容）。
   deletedAt: nonNegativeSafeInteger.optional(),
+  embedding: z.array(z.number()).optional(),
+  embeddingAt: nonNegativeSafeInteger.optional(),
 }).superRefine((record, ctx) => {
   if (record.updatedAt < record.createdAt) {
     ctx.addIssue({
@@ -98,7 +104,7 @@ export const memoryRecordSchema = z.object({
 /** 记忆领域：后端 unit 名 = `memory`，落盘 `$DSH_HOME/storages/memory.json`。 */
 export const memoryDomainSpec = defineDomain({
   name: 'memory',
-  version: 1,
+  version: 2,
   tables: {
     memories: domainTable<string, MemoryRecord>(memoryRecordSchema),
   },

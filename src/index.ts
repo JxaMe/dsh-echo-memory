@@ -20,11 +20,13 @@ import type { HostConnectionRpc } from '@deepseek-ai/dsh-client-connection'
 import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
+import { hasDeepSeekKey } from './store.js'
 import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
-import { createRecallMessage, decideRecall } from './recall.js'
+import { createRecallMessage, decideRecallAsync } from './recall.js'
 import { migrateMemoryFile } from './migrate.js'
+import { embed } from './embedding.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
   type DeletionMode, type MemorySettings,
@@ -136,14 +138,29 @@ export default class MemoryService extends Service {
     this.registerRecall()
     this.registerCapture()
     console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget; recall: on-demand)')
+    if (hasDeepSeekKey()) {
+      void this.backfillEmbeddings().catch(err => console.warn('[dsh-echo-memory] backfill embeddings failed', err))
+    }
   }
 
   /**
-   * 保存一条记忆（与 memory_save 工具同一入口）。
+   * 保存一条记忆（与 memory_save 工具同一入口）。有 Key 时后台补向量，不阻塞确认。
    * @param input - 保存输入（见 MemoryStore.save）。
    */
-  save(input: SaveInput): Promise<SaveOutcome> {
-    return this.requireStore().save(input)
+  async save(input: SaveInput): Promise<SaveOutcome> {
+    const outcome = await this.requireStore().save(input)
+    if (hasDeepSeekKey()) {
+      const content = input.content.trim()
+      if (content.length > 0) {
+        void (async () => {
+          try {
+            const vec = await embed(content)
+            await this.requireStore().setEmbedding(outcome.id, vec)
+          } catch {}
+        })()
+      }
+    }
+    return outcome
   }
 
   /**
@@ -276,7 +293,7 @@ export default class MemoryService extends Service {
       if (decision.kind === 'reject') return decision
       try {
         signal.throwIfAborted()
-        const recall = decideRecall(this.requireStore(), () => {
+        const recall = await decideRecallAsync(this.requireStore(), () => {
           const s = this.readSettings()
           return { enabled: s.injectEnabled, limit: s.injectLimit, maxChars: s.injectMaxChars }
         }, agent, messages)
@@ -302,6 +319,23 @@ export default class MemoryService extends Service {
         maxPerSession: settings.captureMaxPerSession,
       }
     }, this.requireStore(), this.captureFeed))
+  }
+
+  private async backfillEmbeddings(): Promise<void> {
+    const store = this.requireStore()
+    const pending = store.allLive().filter(r => r.embedding === undefined)
+    if (pending.length === 0) return
+    for (let i = 0; i < pending.length; i += 5) {
+      const batch = pending.slice(i, i + 5)
+      await Promise.all(batch.map(async rec => {
+        try {
+          const vec = await embed(rec.content)
+          await store.setEmbedding(rec.id, vec)
+        } catch {}
+      }))
+      if (i + 5 < pending.length) await new Promise(r => setTimeout(r, 200))
+    }
+    if (pending.length > 0) console.log(`[dsh-echo-memory] backfilled ${pending.length} embeddings`)
   }
 
   private requireStore(): MemoryStore {

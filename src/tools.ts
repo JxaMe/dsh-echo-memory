@@ -183,14 +183,76 @@ export function memoryTools(
       render: (_args, value) => [{ type: 'text', text: renderSearch(value.items) }],
     },
     isConcurrencySafe: () => true,
-    async execute(args, _exec) {
-      const hits = store.search({
-        query: args.query,
-        workspace: args.workspace,
-        kind: args.kind,
-        limit: args.limit,
-      })
-      return { items: hits.map(toOutputItem) }
+    async execute(args, exec) {
+      const q = args.query?.trim() ?? ''
+      if (q.length === 0) {
+        const hits = store.search({
+          query: args.query,
+          workspace: args.workspace,
+          kind: args.kind,
+          limit: args.limit,
+        })
+        return { items: hits.map(toOutputItem) }
+      }
+      // 有 query 时走与 pre-step 同款的分词 BM25（VPS SSH → vps+ssh），避免工具与注入不一致
+      const limit = args.limit ?? 8
+      if (args.workspace !== undefined) {
+        const ws = args.workspace
+        const hits = store.searchForRecall(ws, q, limit)
+        const filtered = args.kind === undefined ? hits : hits.filter(h => h.record.kind === args.kind)
+        return { items: filtered.map(toOutputItem) }
+      }
+      // 未指定 workspace：跨全部工作区搜（工具侧不限制全局，全量召回）
+      const all = store.allLive()
+      if (all.length === 0) return { items: [] }
+      // 复用 BM25 逻辑：用 searchForRecall 的分词+IDF，但不过滤工作区
+      const { tokenizeForRecall, expandWithLocalSynonyms, keywordScore, recencyFactor } = await import('./store.js')
+      const baseTokens = tokenizeForRecall(q)
+      const tokens = expandWithLocalSynonyms(baseTokens)
+      const df = new Map<string, number>()
+      for (const tok of tokens) {
+        let c = 0
+        for (const rec of all) if (keywordScore(rec, tok) > 0) c += 1
+        df.set(tok, c)
+      }
+      const N = all.length
+      const idf = new Map<string, number>()
+      for (const tok of tokens) idf.set(tok, Math.log((N - (df.get(tok) ?? 0) + 0.5) / ((df.get(tok) ?? 0) + 0.5) + 1))
+      let totalLen = 0
+      const fieldLen = new Map<string, number>()
+      for (const rec of all) {
+        const len = rec.content.length + rec.tags.join(' ').length
+        fieldLen.set(rec.id, len)
+        totalLen += len
+      }
+      const avgLen = totalLen / Math.max(1, all.length)
+      const k1 = 1.2, b = 0.75
+      const now = Date.now()
+      const scored: Array<{ record: typeof all[number]; score: number }> = []
+      let maxBm25 = 0
+      const bm25Map = new Map<string, number>()
+      for (const rec of all) {
+        let bm25 = 0
+        const len = fieldLen.get(rec.id) ?? rec.content.length
+        for (const tok of tokens) {
+          const tf = keywordScore(rec, tok)
+          if (tf === 0) continue
+          const curIdf = idf.get(tok) ?? 0
+          bm25 += curIdf * (tf * (k1 + 1) / (tf + k1 * (1 - b + b * (len / Math.max(1, avgLen)))))
+        }
+        bm25Map.set(rec.id, bm25)
+        if (bm25 > maxBm25) maxBm25 = bm25
+      }
+      for (const rec of all) {
+        const bm25 = bm25Map.get(rec.id) ?? 0
+        if (bm25 === 0) continue
+        if (args.kind !== undefined && rec.kind !== args.kind) continue
+        const norm = maxBm25 > 0 ? bm25 / maxBm25 : 0
+        const score = norm * (1 + Math.log2(rec.strength)) * recencyFactor(rec.updatedAt, now)
+        scored.push({ record: rec, score })
+      }
+      scored.sort((a, b) => b.score - a.score || b.record.updatedAt - a.record.updatedAt || (a.record.id < b.record.id ? -1 : 1))
+      return { items: scored.slice(0, limit).map(({ record: r }) => toOutputItem({ record: r, score: 0 })) }
     },
   })
 

@@ -9,6 +9,9 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { MemoryKind, MemoryRecord, MemorySource } from './domain.js'
 import { GLOBAL_WORKSPACE } from './domain.js'
 import type { DeletionMode } from './settings.js'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 /** 一次保存的写限值（由插件配置解析而来）。 */
 export interface StoreLimits {
@@ -141,6 +144,29 @@ export function keywordScore(record: MemoryRecord, query: string): number {
   return score
 }
 
+/** 本地同义词表：BM25 之前的轻量膨胀，命中“部署”也能召回“systemd”。无 API Key 时的双保险，回退仍可用。 */
+const LOCAL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  '部署': ['systemd', '发布', '上线', 'deploy', 'systemctl'],
+  'systemd': ['部署', '服务', 'systemctl', 'deploy'],
+  'deploy': ['部署', 'systemd', '发布'],
+  '发布': ['部署', '上线', 'deploy'],
+  '上线': ['部署', '发布'],
+  '前端': ['react', 'ui', '组件', 'vue'],
+  'react': ['前端', 'ui', '组件'],
+  '组件': ['react', '前端', 'ui'],
+  'ui': ['react', '前端', '组件'],
+  '后端': ['api', '服务', '接口'],
+  'api': ['接口', '后端', '服务'],
+  '接口': ['api', '后端'],
+  '数据库': ['db', '存储', 'postgres', 'mysql', 'sqlite'],
+  '存储': ['数据库', 'db', '落盘'],
+  '落盘': ['存储', '持久化', '保存'],
+  '记忆': ['memory', '记住'],
+  '记住': ['记忆', 'memory'],
+  '配置': ['设置', 'config', 'settings'],
+  '设置': ['配置', 'config'],
+})
+
 /** 按需召回的 query 分词：提“systemd 怎么配”中的有效 token，避免整句不命中。 */
 export function tokenizeForRecall(query: string): string[] {
   const trimmed = query.trim().toLowerCase()
@@ -152,13 +178,71 @@ export function tokenizeForRecall(query: string): string[] {
   for (const tok of raw) {
     const t = tok.toLowerCase()
     if (t.length === 0 || seen.has(t)) continue
-    // 过滤单字母英文噪音（a/I），但保留单字中文
-    if (/^[a-z]$/.test(t)) continue
-    seen.add(t)
-    tokens.push(t)
-    if (tokens.length >= 20) break // 上限 20 防长文爆炸
+    if (t.length < 2) continue
+    // 中文长串拆成 2-gram，避免“本机什么系统”整串不命中“本机系统信息”
+    if (/^[\u4e00-\u9fa5]+$/.test(t) && t.length > 4) {
+      for (let i = 0; i < t.length - 1; i++) {
+        const gram = t.slice(i, i + 2)
+        if (seen.has(gram)) continue
+        seen.add(gram)
+        tokens.push(gram)
+        if (tokens.length >= 20) break
+      }
+      if (!seen.has(t) && tokens.length < 20) {
+        seen.add(t)
+        tokens.push(t)
+      }
+    } else {
+      seen.add(t)
+      tokens.push(t)
+    }
+    if (tokens.length >= 20) break
+  }
+  // 中文连续串会把“发布怎么弄”当一整 token，导致同义词表失配；额外扫描已知词表做子串命中
+  for (const key of Object.keys(LOCAL_SYNONYMS)) {
+    const lower = key.toLowerCase()
+    if (seen.has(lower)) continue
+    if (trimmed.includes(lower)) {
+      seen.add(lower)
+      tokens.push(lower)
+      if (tokens.length >= 20) break
+    }
   }
   return tokens
+}
+
+let cachedHasKey: boolean | undefined
+/** 检测是否已配 DeepSeek Key（用于远端同义词/embedding，回退到本地 BM25）。 */
+export function hasDeepSeekKey(): boolean {
+  if (cachedHasKey !== undefined) return cachedHasKey
+  if (typeof process.env.DEEPSEEK_API_KEY === 'string' && process.env.DEEPSEEK_API_KEY.trim().length > 0) {
+    cachedHasKey = true
+    return true
+  }
+  try {
+    const raw = readFileSync(join(homedir(), '.dsh', '.credentials.yaml'), 'utf8')
+    cachedHasKey = /DEEPSEEK_API_KEY:\s*sk-/.test(raw)
+    return cachedHasKey
+  } catch { cachedHasKey = false; return false }
+}
+
+/** 基于本地表的同义词膨胀（去重，保留原词，权重交给 BM25 的 IDF）。 */
+export function expandWithLocalSynonyms(tokens: readonly string[]): string[] {
+  const seen = new Set<string>(tokens)
+  const expanded = [...tokens]
+  for (const tok of tokens) {
+    const syns = LOCAL_SYNONYMS[tok]
+    if (syns === undefined) continue
+    for (const s of syns) {
+      const lower = s.toLowerCase()
+      if (seen.has(lower)) continue
+      seen.add(lower)
+      expanded.push(lower)
+      if (expanded.length >= 30) break
+    }
+    if (expanded.length >= 30) break
+  }
+  return expanded
 }
 
 /**
@@ -196,6 +280,27 @@ export class MemoryStore {
       if (record.deletedAt === undefined) count += 1
     }
     return count
+  }
+
+  /** 取指定工作区的所有活记录（全局 `*` 始终包含），供混合检索用。 */
+  liveRecords(workspace: string): MemoryRecord[] {
+    const out: MemoryRecord[] = []
+    for (const [, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) continue
+      if (record.workspace !== workspace && record.workspace !== GLOBAL_WORKSPACE) continue
+      out.push(record)
+    }
+    return out
+  }
+
+  /** 所有活记录（不分工作区），供后台向量回填用。 */
+  allLive(): MemoryRecord[] {
+    const out: MemoryRecord[] = []
+    for (const [, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) continue
+      out.push(record)
+    }
+    return out
   }
 
   /**
@@ -240,6 +345,13 @@ export class MemoryStore {
     }
     await this.table.put(id, record)
     return { existed: false, id, strength: 1, workspace }
+  }
+
+  /** 补写向量（后台异步，不阻塞保存确认）。 */
+  async setEmbedding(id: string, embedding: readonly number[], now: number = Date.now()): Promise<void> {
+    const rec = this.table.get(id)
+    if (rec === undefined || rec.deletedAt !== undefined) return
+    await this.table.put(id, { ...rec, embedding: Object.freeze([...embedding]), embeddingAt: now })
   }
 
   /**
@@ -348,26 +460,68 @@ export class MemoryStore {
   }
 
   /**
-   * 按需召回：结合关键词相关性 + 强度 + 新鲜度，工作区 = 当前会话 cwd 或全局 `*`。
+   * 按需召回：BM25 + 同义词膨胀 + 强度 + 新鲜度，工作区 = 当前会话 cwd 或全局 `*`。
    * 与 rankedForInjection 不同：不过滤 90 天老化（相关就召回），但仍用新鲜度加权。
    * 空 query 返回空（按需 = 无问不召回），避免广播噪音。query 按 token 分词后累加评分，
    * 解决「systemd 怎么配」这类长句中只有部分词命中的召回问题。
+   * 同义词膨胀：本地表常驻（无 Key 也可用）；有 DEEPSEEK_API_KEY 时后续可叠加远端 embedding/LLM 膨胀，双保险。
    * @param workspace - 当前会话 cwd；`*` 时只取全局记忆。
    * @param query - 当前用户问题的原文（大小写不敏感）。
    * @param limit - 候选上限。
    * @param now - 时间基准。
    */
   searchForRecall(workspace: string, query: string, limit: number, now: number = Date.now()): SearchHit[] {
-    const tokens = tokenizeForRecall(query)
-    if (tokens.length === 0) return []
-    const hits: SearchHit[] = []
+    const baseTokens = tokenizeForRecall(query)
+    if (baseTokens.length === 0) return []
+    // 本地同义词膨胀（无 Key 也生效的双保险；有 Key 时远端路径会在 recall.ts 再叠加）
+    const tokens = expandWithLocalSynonyms(baseTokens)
+    // 先收集候选池（工作区过滤）
+    const candidates: MemoryRecord[] = []
     for (const [, record] of this.table.entries()) {
       if (record.deletedAt !== undefined) continue
       if (record.workspace !== workspace && record.workspace !== GLOBAL_WORKSPACE) continue
-      let word = 0
-      for (const tok of tokens) word += keywordScore(record, tok)
-      if (word === 0) continue
-      const score = word * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
+      candidates.push(record)
+    }
+    if (candidates.length === 0) return []
+    // BM25 准备：DF 与平均场长
+    const df = new Map<string, number>()
+    for (const tok of tokens) {
+      let c = 0
+      for (const rec of candidates) if (keywordScore(rec, tok) > 0) c += 1
+      df.set(tok, c)
+    }
+    const N = candidates.length
+    const idf = new Map<string, number>()
+    for (const tok of tokens) {
+      const f = df.get(tok) ?? 0
+      // BM25 IDF 平滑：log((N - df +0.5)/(df+0.5)+1)
+      idf.set(tok, Math.log((N - f + 0.5) / (f + 0.5) + 1))
+    }
+    let totalLen = 0
+    const fieldLen = new Map<string, number>()
+    for (const rec of candidates) {
+      const len = rec.content.length + rec.tags.join(' ').length
+      fieldLen.set(rec.id, len)
+      totalLen += len
+    }
+    const avgLen = totalLen / Math.max(1, candidates.length)
+    const k1 = 1.2
+    const b = 0.75
+    const hits: SearchHit[] = []
+    for (const record of candidates) {
+      let bm25 = 0
+      const len = fieldLen.get(record.id) ?? record.content.length
+      for (const tok of tokens) {
+        const tfRaw = keywordScore(record, tok)
+        if (tfRaw === 0) continue
+        // TF 归一：keywordScore 已含 tag 权重，这里当 TF 用
+        const tf = tfRaw
+        const curIdf = idf.get(tok) ?? 0
+        const norm = tf * (k1 + 1) / (tf + k1 * (1 - b + b * (len / Math.max(1, avgLen))))
+        bm25 += curIdf * norm
+      }
+      if (bm25 === 0) continue
+      const score = bm25 * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
       hits.push({ record, score })
     }
     hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
