@@ -324,6 +324,17 @@ export class MemoryStore {
     return out.slice(0, clampInt(limit, 20, 1, 100))
   }
 
+  /** 列出最近活跃记忆，按 updatedAt 降序（纯管理用，不走评分）。 */
+  listRecent(limit: number = 20): MemoryRecord[] {
+    const out: MemoryRecord[] = []
+    for (const [, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) continue
+      out.push(record)
+    }
+    out.sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : 1))
+    return out.slice(0, clampInt(limit, 20, 1, 100))
+  }
+
   /** 恢复单条墓碑（清除 deletedAt），不存在或未删除返回 false。 */
   async restore(id: string): Promise<boolean> {
     const rec = this.table.get(id)

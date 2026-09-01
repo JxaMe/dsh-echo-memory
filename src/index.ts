@@ -203,6 +203,17 @@ export default class MemoryService extends Service {
     return this.requireStore().update(id, patch)
   }
 
+  /** 最近活跃记忆（供 Dock 纯管理面板） */
+  listRecent(limit: number = 20): readonly import('./domain.js').MemoryRecord[] {
+    return this.requireStore().listRecent(limit)
+  }
+
+  /** 搜索（供 Dock 搜索） */
+  searchRecent(query: string, limit: number = 20): readonly import('./store.js').SearchHit[] {
+    if (query.trim().length === 0) return this.listRecent(limit).map(r => ({ record: r, score: 0 }))
+    return this.requireStore().search({ query, limit })
+  }
+
   /** 运行期统计（浏览器卡片展示）：注入次数/命中数 + 活跃记忆条数。 */
   memoryStats(): { readonly injections: { readonly requests: number; readonly withContent: number }; readonly memories: number } {
     const store = this.requireStore()
@@ -319,6 +330,61 @@ export default class MemoryService extends Service {
           try {
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(this.lastRecall ?? { at: 0, query: '', hits: [] }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/list',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const url = new URL(_req.url ?? '/api/dsh-echo-memory/list', 'http://localhost')
+            const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
+            const q = url.searchParams.get('q') ?? ''
+            const items = q.trim().length > 0
+              ? this.searchRecent(q, limit).map(h => h.record)
+              : this.listRecent(limit)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ items }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/save',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const body = await readJsonBody(_req) as { content?: unknown; tags?: unknown; kind?: unknown; workspace?: unknown }
+            const content = typeof body.content === 'string' ? body.content : ''
+            const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
+            const kind = typeof body.kind === 'string' ? body.kind as import('./domain.js').MemoryKind : undefined
+            const workspace = typeof body.workspace === 'string' ? body.workspace : this.config.defaultWorkspace
+            const outcome = await this.save({ content, tags, kind, workspace })
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(outcome))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/forget',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const body = await readJsonBody(_req) as { id?: unknown }
+            const id = typeof body.id === 'string' ? body.id : ''
+            if (!id) throw new Error('missing id')
+            const ok = await this.forget(id)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok }))
           } catch (error) {
             res.writeHead(500, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: String(error) }))
