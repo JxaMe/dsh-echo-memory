@@ -405,9 +405,9 @@ export function GlobalDock() {
                       style={{
                         padding: '4px 10px',
                         borderRadius: '999px',
-                        border: active ? '1px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l2)',
-                        background: active ? 'var(--dsw-alias-brand-primary)' : 'transparent',
-                        color: active ? 'white' : 'var(--dsw-alias-label-tertiary)',
+                        border: active ? '1px solid var(--dsw-alias-label-primary)' : '1px solid var(--dsw-alias-border-l2)',
+                        background: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-bg-layer-3)',
+                        color: active ? 'var(--dsw-alias-bg-layer-3)' : 'var(--dsw-alias-label-tertiary)',
                         fontSize: '11px',
                         cursor: 'pointer',
                       }}
