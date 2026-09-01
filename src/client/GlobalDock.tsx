@@ -99,6 +99,8 @@ export function GlobalDock() {
   const [suggestPool, setSuggestPool] = useState<MemoryRecord[]>([])
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggest, setShowSuggest] = useState(false)
+  const [filterScope, setFilterScope] = useState<'all' | 'global' | 'project'>('all')
+  const [saveWorkspace, setSaveWorkspace] = useState<string>('*')
   const lastAtRef = useRef(0)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const dropToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -110,7 +112,7 @@ export function GlobalDock() {
     if (text.length < 2) return
     const clipped = text.length > 500 ? text.slice(0, 500) : text
     try {
-      const res = await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: clipped }) })
+      const res = await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: clipped, workspace: saveWorkspace }) })
       if (!res.ok) throw new Error('save failed')
       const preview = clipped.length > 20 ? clipped.slice(0, 20).trimEnd() + '…' : clipped
       setDropToast(`已记住：${preview}`)
@@ -128,7 +130,7 @@ export function GlobalDock() {
       if (dropToastTimer.current) clearTimeout(dropToastTimer.current)
       dropToastTimer.current = setTimeout(() => setDropToast(null), 2200)
     }
-  }, [showManage, activeTab, manageQuery])
+  }, [showManage, activeTab, manageQuery, saveWorkspace])
 
   const dotDropHandlers = {
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!isDropOver) setIsDropOver(true) },
@@ -391,6 +393,33 @@ export function GlobalDock() {
 
           {activeTab === 'memory' ? (
             <>
+              <div style={{ display: 'flex', gap: '6px', padding: '8px 14px 0', flexShrink: 0 }}>
+                {(['all', 'project', 'global'] as const).map((s) => {
+                  const label = s === 'all' ? '全部' : s === 'global' ? '全局' : '本项目'
+                  const active = filterScope === s
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setFilterScope(s)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '999px',
+                        border: active ? '1px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l2)',
+                        background: active ? 'var(--dsw-alias-brand-primary)' : 'transparent',
+                        color: active ? 'white' : 'var(--dsw-alias-label-tertiary)',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+                <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', alignSelf: 'center' }}>
+                  {filterScope === 'all' ? `${items.length}` : filterScope === 'global' ? `${items.filter(r => r.workspace === '*').length}` : `${items.filter(r => r.workspace !== '*').length}`} 条
+                </span>
+              </div>
               <div style={{ padding: '10px 14px', flexShrink: 0, position: 'relative' }}>
                 <input
                   value={manageQuery}
@@ -431,16 +460,17 @@ export function GlobalDock() {
               </div>
 
               <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px', minHeight: 0 }}>
-                {loading && items.length === 0 ? (
-                  <div style={{ padding: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>加载中…</div>
-                ) : items.length === 0 ? (
-                  <div style={{ padding: '24px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '20px', marginBottom: '6px' }}>📭</div>
-                    <div style={{ fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>{manageQuery ? '无匹配' : '还没有记忆'}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' }}>选中文字拖到原点或本面板也能直接记住</div>
-                  </div>
-                ) : (
-                  items.map((r) => {
+                {(() => {
+                  const displayItems = filterScope === 'all' ? items : items.filter(r => filterScope === 'global' ? r.workspace === '*' : r.workspace !== '*')
+                  if (loading && items.length === 0) return <div style={{ padding: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>加载中…</div>
+                  if (displayItems.length === 0) return (
+                    <div style={{ padding: '24px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', marginBottom: '6px' }}>📭</div>
+                      <div style={{ fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>{manageQuery ? '无匹配' : filterScope !== 'all' ? (filterScope === 'global' ? '暂无全局记忆' : '暂无项目记忆') : '还没有记忆'}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' }}>选中文字拖到原点或本面板也能直接记住</div>
+                    </div>
+                  )
+                  return displayItems.map((r) => {
                     const isEditing = editingId === r.id
                     return (
                       <div
@@ -454,6 +484,7 @@ export function GlobalDock() {
                       >
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l2)', padding: '0 5px', borderRadius: '999px', lineHeight: '16px' }}>{r.kind}</span>
+                          <span style={{ fontSize: '11px', color: r.workspace === '*' ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l2)', padding: '0 5px', borderRadius: '999px', lineHeight: '16px', background: r.workspace === '*' ? 'rgba(99,102,241,0.08)' : 'transparent' }}>{r.workspace === '*' ? '全局' : (r.workspace.split('/').pop() || '项目')}</span>
                           <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' }}>{formatTime(r.updatedAt)}</span>
                           {r.tags.length > 0 && <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' }}>#{r.tags[0]}</span>}
                           {r.strength > 1 && <span style={{ fontSize: '10px', color: 'var(--dsw-alias-label-tertiary)' }}>×{r.strength}</span>}
@@ -546,10 +577,22 @@ export function GlobalDock() {
                       </div>
                     )
                   })
-                )}
+                })()}
               </div>
 
-              <div style={{ padding: '8px 14px', borderTop: '1px solid var(--dsw-alias-border-l2)', display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <div style={{ padding: '8px 14px', borderTop: '1px solid var(--dsw-alias-border-l2)', display: 'flex', gap: '8px', flexShrink: 0, alignItems: 'center' }}>
+                <select
+                  value={saveWorkspace}
+                  onChange={(e) => setSaveWorkspace(e.target.value)}
+                  title="选择记忆归属"
+                  style={{ padding: '6px 6px', borderRadius: '8px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', fontSize: '11px', outline: 'none', maxWidth: '96px', flexShrink: 0 }}
+                >
+                  <option value="*">全局</option>
+                  {[...new Set(suggestPool.map(r => r.workspace))].filter(w => w !== '*').map(w => (
+                    <option key={w} value={w}>{w.split('/').pop() || w}</option>
+                  ))}
+                  {!['*', ...suggestPool.map(r => r.workspace)].includes(saveWorkspace) && <option value={saveWorkspace}>{saveWorkspace.split('/').pop() || saveWorkspace}</option>}
+                </select>
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -557,7 +600,7 @@ export function GlobalDock() {
                     if (e.key !== 'Enter') return
                     const c = query.trim()
                     if (!c) return
-                    await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: c }) })
+                    await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: c, workspace: saveWorkspace }) })
                     setQuery('')
                     const res = await fetch(`/api/dsh-echo-memory/list?limit=20&q=${encodeURIComponent(manageQuery.trim())}`)
                     const data = (await res.json()) as { items: MemoryRecord[] }
@@ -580,7 +623,7 @@ export function GlobalDock() {
                   onClick={async () => {
                     const c = query.trim()
                     if (!c) return
-                    await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: c }) })
+                    await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: c, workspace: saveWorkspace }) })
                     setQuery('')
                     const res = await fetch(`/api/dsh-echo-memory/list?limit=20&q=${encodeURIComponent(manageQuery.trim())}`)
                     const data = (await res.json()) as { items: MemoryRecord[] }
