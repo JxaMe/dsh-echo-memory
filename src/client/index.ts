@@ -20,7 +20,9 @@ import { MemoryCardController } from './card-controller.ts'
 import type { MemoryCardFace } from './card-controller.ts'
 import { MemoryPluginCard } from './MemoryPluginCard.tsx'
 import type { MemoryPluginCardProps } from './MemoryPluginCard.tsx'
+import { createElement } from 'react'
 import { en, zh, type MemoryKey } from './locales.ts'
+import { GlobalDock } from './GlobalDock.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -51,6 +53,23 @@ export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-echo-memory: settings card dictionaries')
+  // 全站悬浮 Dock（瞬态预览，常驻右下角可唤起）
+  ctx.effect(() => {
+    const container = document.createElement('div')
+    container.id = 'dshm-global-dock-root'
+    document.body.appendChild(container)
+    let root: { unmount: () => void; render: (e: unknown) => void } | undefined
+    // react-dom/client 为基线外部，由 shell 提供
+    // @ts-ignore dynamic
+    void import('react-dom/client').then(({ createRoot }: { createRoot: (c: Element) => { unmount: () => void; render: (e: unknown) => void } }) => {
+      root = createRoot(container)
+      root.render(createElement(GlobalDock))
+    })
+    return () => {
+      if (root) root.unmount()
+      container.remove()
+    }
+  }, 'dsh-echo-memory: global dock')
   const controller = new MemoryCardController(
     ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS_VALUE }),
     () => invokePurge(ctx),
