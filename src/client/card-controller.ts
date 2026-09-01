@@ -116,6 +116,8 @@ export interface MemoryCardState {
   saving: boolean
   /** 最近一次保存未按草稿落库（下次编辑或保存清除）。 */
   failed: boolean
+  /** 刚保存成功，2s 内显示“已保存”轻提示。 */
+  justSaved: boolean
   injectEnabled: MemoryCardBooleanState
   injectLimit: MemoryCardFieldState
   injectMaxChars: MemoryCardFieldState
@@ -176,6 +178,7 @@ function initial(): MemoryCardState {
     invalid: false,
     saving: false,
     failed: false,
+    justSaved: false,
     injectEnabled: { checked: false, overridden: false },
     injectLimit: { text: '', overridden: false, invalid: false },
     injectMaxChars: { text: '', overridden: false, invalid: false },
@@ -220,6 +223,8 @@ export class MemoryCardController {
   private user: Readonly<Record<string, unknown>> | undefined
   private saving = false
   private failed = false
+  private justSaved = false
+  private justSavedTimer: ReturnType<typeof setTimeout> | undefined
 
   /**
    * @param scope - 绑定在 `memory` 命名空间上的设置 scope。
@@ -260,19 +265,32 @@ export class MemoryCardController {
   private stageText(field: MemoryCardTextField, text: string): void {
     this.drafts.set(field, { kind: 'text', text })
     this.failed = false
+    this.clearJustSaved()
     this.emit()
   }
 
   private stageBool(field: MemoryCardBooleanField, checked: boolean): void {
     this.drafts.set(field, { kind: 'bool', checked })
     this.failed = false
+    this.clearJustSaved()
     this.emit()
   }
 
   private stageChoice(field: MemoryCardChoiceField, value: DeletionMode): void {
     this.drafts.set(field, { kind: 'choice', value })
     this.failed = false
+    this.clearJustSaved()
     this.emit()
+  }
+
+  private clearJustSaved(): void {
+    if (this.justSaved) {
+      this.justSaved = false
+      if (this.justSavedTimer !== undefined) {
+        clearTimeout(this.justSavedTimer)
+        this.justSavedTimer = undefined
+      }
+    }
   }
 
   /** 执行彻底删除：确认在 UI 侧；结果/失败回投影到卡片。 */
@@ -339,12 +357,14 @@ export class MemoryCardController {
   private stageClear(field: MemoryCardField): void {
     this.drafts.set(field, { kind: 'clear' })
     this.failed = false
+    this.clearJustSaved()
     this.emit()
   }
 
   private discard(): void {
     this.drafts.clear()
     this.failed = false
+    this.clearJustSaved()
     this.reseed()
   }
 
@@ -353,6 +373,7 @@ export class MemoryCardController {
     if (!current.writable || current.invalid || this.saving) return
     this.saving = true
     this.emit()
+    let ok = true
     try {
       for (const [field, edit] of this.drafts) {
         if (edit.kind === 'bool') {
@@ -376,8 +397,19 @@ export class MemoryCardController {
       this.failed = false
     } catch (_writeFailure) {
       this.failed = true
+      ok = false
     }
     this.saving = false
+    if (ok) {
+      this.justSaved = true
+      this.emit()
+      if (this.justSavedTimer !== undefined) clearTimeout(this.justSavedTimer)
+      this.justSavedTimer = setTimeout(() => {
+        this.justSaved = false
+        this.justSavedTimer = undefined
+        this.emit()
+      }, 2000)
+    }
     this.reseed()
   }
 
@@ -425,6 +457,7 @@ export class MemoryCardController {
       invalid,
       saving: this.saving,
       failed: this.failed,
+      justSaved: this.justSaved,
       injectEnabled: this.booleanState('injectEnabled'),
       injectLimit: this.textState('injectLimit'),
       injectMaxChars: this.textState('injectMaxChars'),

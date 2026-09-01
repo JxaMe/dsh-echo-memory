@@ -89,6 +89,8 @@ textarea.dshm-input { height: auto; min-height: 72px; padding: 8px 12px; resize:
 .dshm-recycleMeta { font-size: 11px; color: var(--dsw-alias-label-tertiary); margin-top: 2px; }
 .dshm-recycleActions { display: flex; gap: 6px; flex: none; }
 .dshm-btnSmall { padding: 3px 10px; font-size: 12px; }
+.dshm-progress { height: 6px; border-radius: 999px; background: var(--dsw-alias-bg-module-platform); overflow: hidden; }
+.dshm-progressFill { height: 100%; background: var(--dsw-alias-brand-primary); transition: width .22s; }
 `
   document.head.appendChild(tag)
 }
@@ -344,6 +346,21 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
               onEdit={(text) => { props.edit('injectMaxChars', text) }}
               onReset={props.resetField}
             />
+            {state.stats.phase === 'done' ? (() => {
+              const limit = Number.parseInt(state.injectLimit.text, 10)
+              const max = Number.parseInt(state.injectMaxChars.text, 10)
+              const lim = Number.isFinite(limit) && limit > 0 ? limit : 8
+              const mx = Number.isFinite(max) && max > 0 ? max : 1500
+              const mem = state.stats.data.memories
+              const used = Math.min(lim, mem) * 85
+              const pct = Math.min(100, Math.round((used / mx) * 100))
+              return (
+                <div style={{ marginTop: '-6px', marginBottom: '6px' }}>
+                  <div className="dshm-progress"><div className="dshm-progressFill" style={{ width: `${pct}%` }} /></div>
+                  <p className="dshm-hint" style={{ marginTop: '4px' }}>预估占用 ~{used}/{mx} 字符 · {mem} 条记忆 · 上限 {lim} 条 {pct >= 90 ? '· 接近上限' : ''}</p>
+                </div>
+              )
+            })() : null}
             <MemoryBooleanField
               t={t}
               id="dsh-echo-memory-capture-enabled"
@@ -471,6 +488,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
               )
               : null}
             <div className="dshm-footer">
+              {state.justSaved ? <p className="dshm-hint" role="status" style={{ color: 'var(--dsw-alias-brand-primary)' }}>已保存 ✅</p> : null}
               {state.failed ? <p className="dshm-failed" role="status">{t('status.failed')}</p> : null}
               <button
                 type="button"

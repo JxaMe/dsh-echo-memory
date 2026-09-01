@@ -33,7 +33,7 @@ function workspaceOf(
 
 /** 检索结果渲染：模型可见文本（含 id，便于后续 memory_forget 引用）。 */
 function renderSearch(items: readonly SearchOutputItem[]): string {
-  if (items.length === 0) return '未找到匹配的记忆。'
+  if (items.length === 0) return '还没这方面的记忆，试试换个关键词，或先用 memory_save 记住一条？'
   const lines = items.map((item, index) =>
     `${index + 1}. [${item.kind}] ${item.content}`
     + `${tagSuffix(item.tags)}`
