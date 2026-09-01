@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ElephantIcon } from './ElephantIcon.tsx'
 
 type RecallHit = { id: string; kind: string; content: string; tags: readonly string[]; strength: number }
 type LastRecall = { at: number; query: string; hits: RecallHit[] }
@@ -141,7 +142,7 @@ export function GlobalDock() {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid var(--dsw-alias-border-l2)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '14px' }}>🧠</span>
+            <ElephantIcon size={16} />
             <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--dsw-alias-label-primary)' }}>记忆</span>
             <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', background: 'var(--dsw-alias-bg-layer-3)', padding: '1px 6px', borderRadius: '999px' }}>{items.length}</span>
           </div>
@@ -399,7 +400,7 @@ export function GlobalDock() {
         }}
         title="记忆管理 · 点击打开 / 拖动移动 / 双击复位"
       >
-        🧠
+        <ElephantIcon size={20} />
       </button>
     )
   }
@@ -464,7 +465,7 @@ export function GlobalDock() {
         }}
         title="已召回 · 点击打开记忆管理 / 拖动移动 / 双击复位"
       >
-        🧠
+        <ElephantIcon size={20} />
       </button>
     )
   }
@@ -495,7 +496,7 @@ export function GlobalDock() {
         zIndex: 9999,
       }}
     >
-      <div style={{ fontSize: '16px', lineHeight: 1, paddingTop: '1px' }}>🧠</div>
+      <div style={{ paddingTop: '1px' }}><ElephantIcon size={16} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
           {titleText && (
