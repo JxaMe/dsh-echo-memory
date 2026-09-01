@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 type RecallHit = { id: string; kind: string; content: string; tags: readonly string[]; strength: number }
 type LastRecall = { at: number; query: string; hits: RecallHit[] }
 
+const STORAGE_KEY = 'dshm-dock-pos'
+const DOT_SIZE = 36
+
 function splitTitle(content: string): { title: string; body: string } {
   const raw = content.trim()
   const colon = raw.search(/[:：]/)
@@ -13,7 +16,6 @@ function splitTitle(content: string): { title: string; body: string } {
   if (comma > 0 && comma < 24) {
     return { title: raw.slice(0, comma).trim(), body: raw.slice(comma + 1).trim() }
   }
-  // 无标题则取前 12 字作标题
   if (raw.length <= 20) return { title: raw, body: '' }
   return { title: '', body: raw }
 }
@@ -22,8 +24,26 @@ export function GlobalDock() {
   const [hits, setHits] = useState<RecallHit[]>([])
   const [showBig, setShowBig] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [dotPos, setDotPos] = useState<{ x: number; y: number } | null>(null)
   const lastAtRef = useRef(0)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; moved: boolean } | null>(null)
+
+  // 恢复上次拖动位置
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const p = JSON.parse(raw) as { x: number; y: number }
+        if (typeof p.x === 'number' && typeof p.y === 'number' && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+          // 夹到视口内
+          const nx = Math.min(window.innerWidth - DOT_SIZE - 4, Math.max(4, p.x))
+          const ny = Math.min(window.innerHeight - DOT_SIZE - 4, Math.max(4, p.y))
+          setDotPos({ x: nx, y: ny })
+        }
+      }
+    } catch {}
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -46,7 +66,6 @@ export function GlobalDock() {
         }, 6000)
       } catch {}
     }
-    // 立即拉一次，随后每 2.5s 轮询
     void poll()
     const id = setInterval(poll, 2500)
     return () => {
@@ -59,14 +78,47 @@ export function GlobalDock() {
   const first = hits[0]
   const more = hits.length > 1 ? hits.length - 1 : 0
 
-  // 完全未触发过召回时，不占位（也不显示小圆点），保持“不常驻”
   if (!first) return null
 
   if (collapsed && !showBig) {
+    const posStyle: React.CSSProperties = dotPos
+      ? { left: dotPos.x, top: dotPos.y, right: 'auto', bottom: 'auto' }
+      : { right: '20px', bottom: '20px' }
     return (
       <button
         type="button"
-        onClick={() => {
+        onPointerDown={(e) => {
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          dragRef.current = { startX: e.clientX, startY: e.clientY, origX: rect.left, origY: rect.top, moved: false }
+          ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+        }}
+        onPointerMove={(e) => {
+          if (!dragRef.current) return
+          const dx = e.clientX - dragRef.current.startX
+          const dy = e.clientY - dragRef.current.startY
+          if (Math.hypot(dx, dy) > 3) dragRef.current.moved = true
+          const nx = Math.min(window.innerWidth - DOT_SIZE - 4, Math.max(4, dragRef.current.origX + dx))
+          const ny = Math.min(window.innerHeight - DOT_SIZE - 4, Math.max(4, dragRef.current.origY + dy))
+          setDotPos({ x: nx, y: ny })
+        }}
+        onPointerUp={(e) => {
+          const info = dragRef.current
+          dragRef.current = null
+          try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+          if (info?.moved) {
+            // 拖动结束，落盘
+            const cur = dotPos
+            // pos 刚 set 还是旧值，取最新计算值
+            const dx = e.clientX - info.startX
+            const dy = e.clientY - info.startY
+            const nx = Math.min(window.innerWidth - DOT_SIZE - 4, Math.max(4, info.origX + dx))
+            const ny = Math.min(window.innerHeight - DOT_SIZE - 4, Math.max(4, info.origY + dy))
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: nx, y: ny })) } catch {}
+            // 同步一次
+            setDotPos({ x: nx, y: ny })
+            return
+          }
+          // 未拖动 = 点击展开
           setCollapsed(false)
           setShowBig(true)
           if (hideTimer.current) clearTimeout(hideTimer.current)
@@ -75,10 +127,13 @@ export function GlobalDock() {
             setCollapsed(true)
           }, 6000)
         }}
+        onDoubleClick={() => {
+          // 双击回默认位置
+          setDotPos(null)
+          try { localStorage.removeItem(STORAGE_KEY) } catch {}
+        }}
         style={{
           position: 'fixed',
-          bottom: '20px',
-          right: '20px',
           width: '36px',
           height: '36px',
           borderRadius: '999px',
@@ -87,12 +142,15 @@ export function GlobalDock() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          cursor: 'pointer',
+          cursor: 'grab',
           boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
           fontSize: '16px',
           zIndex: 9999,
+          touchAction: 'none',
+          userSelect: 'none',
+          ...posStyle,
         }}
-        title={`已召回 ${hits.length} 条，点击查看`}
+        title="已召回 · 点击查看 / 拖动移动 / 双击复位"
       >
         🧠
       </button>
