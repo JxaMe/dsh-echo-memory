@@ -22,7 +22,7 @@ import { hasDeepSeekKey } from './store.js'
 import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
-import { createRecallMessage, decideRecallAsync } from './recall.js'
+import { createRecallMessage, decideRecallAsync, extractQuery } from './recall.js'
 import { migrateMemoryFile } from './migrate.js'
 import { embed } from './embedding.js'
 import {
@@ -88,6 +88,7 @@ export default class MemoryService extends Service {
   private readonly settingsEntry: MemorySettings
   private readSettings: () => MemorySettings
   private store: MemoryStore | undefined
+  private lastRecall: { at: number; query: string; hits: Array<{ id: string; kind: string; content: string; tags: readonly string[]; strength: number }> } | null = null
 
   /**
    * @param ctx - 宿主上下文（storageDomain/systemPrompt/tools 就绪后才实例化）。
@@ -311,6 +312,19 @@ export default class MemoryService extends Service {
           }
         },
       }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/last-recall',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(this.lastRecall ?? { at: 0, query: '', hits: [] }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
       return () => { for (const dispose of regs) dispose() }
     })
   }
@@ -354,6 +368,15 @@ export default class MemoryService extends Service {
           return { enabled: s.injectEnabled, limit: s.injectLimit, maxChars: s.injectMaxChars }
         }, agent, messages)
         if (recall === undefined) return decision
+        // 记录最近一次召回，供全局 Dock 瞬态展示
+        try {
+          const q = extractQuery(messages).slice(0, 200)
+          this.lastRecall = {
+            at: Date.now(),
+            query: q,
+            hits: recall.rawHits.map(h => ({ id: h.record.id, kind: h.record.kind, content: h.record.content, tags: [...h.record.tags], strength: h.record.strength })),
+          }
+        } catch {}
         const injection = createRecallMessage(recall.text, recall.hits)
         return { ...decision, messages: [...decision.messages, injection] }
       } catch (error) {

@@ -54,7 +54,7 @@ export function decideRecall(
   read: () => MemoryInjectionConfig,
   agent: Agent,
   messages: readonly UserMessage[],
-): { text: string; hits: number } | undefined {
+): { text: string; hits: number; rawHits: import('./store.js').SearchHit[] } | undefined {
   const { enabled, limit, maxChars } = read()
   if (!enabled) return undefined
   const query = extractQuery(messages)
@@ -64,7 +64,7 @@ export function decideRecall(
   }
   const workspace = agentWorkspace(agent) ?? GLOBAL_WORKSPACE
   const rawHits = store.searchForRecall(workspace, query, limit)
-  const hits = filterRecallHits(rawHits)
+  const hits = filterRecallHits(rawHits) as import('./store.js').SearchHit[]
   if (hits.length === 0) {
     store.recordAssembly(true, false)
     return undefined
@@ -75,7 +75,7 @@ export function decideRecall(
     return undefined
   }
   store.recordAssembly(true, true)
-  return { text: renderRecallBlock(recallText), hits: hits.length }
+  return { text: renderRecallBlock(recallText), hits: hits.length, rawHits: hits }
 }
 
 export async function decideRecallAsync(
@@ -83,7 +83,7 @@ export async function decideRecallAsync(
   read: () => MemoryInjectionConfig,
   agent: Agent,
   messages: readonly UserMessage[],
-): Promise<{ text: string; hits: number } | undefined> {
+): Promise<{ text: string; hits: number; rawHits: import('./store.js').SearchHit[] } | undefined> {
   const { enabled, limit, maxChars } = read()
   if (!enabled) return undefined
   const query = extractQuery(messages)
@@ -105,7 +105,7 @@ export async function decideRecallAsync(
     const now = Date.now()
     const scored = scoreHybridBM25(candidates, tokens, queryVec, now, cosine)
     const sliced = scored.slice(0, Math.max(1, Math.min(limit, 50)))
-    const hits = filterRecallHits(sliced)
+    const hits = filterRecallHits(sliced) as import('./store.js').SearchHit[]
     if (hits.length === 0) {
       store.recordAssembly(true, false)
       return undefined
@@ -116,7 +116,7 @@ export async function decideRecallAsync(
       return undefined
     }
     store.recordAssembly(true, true)
-    return { text: renderRecallBlock(recallText), hits: hits.length }
+    return { text: renderRecallBlock(recallText), hits: hits.length, rawHits: hits }
   } catch {
     return decideRecall(store, read, agent, messages)
   }
