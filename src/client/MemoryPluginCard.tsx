@@ -19,6 +19,7 @@ import type { DeletionMode } from '../settings.ts'
 import type { MemoryKey } from './locales.ts'
 import { MemoryDockPreview, ensureDockStyles } from './MemoryDock.tsx'
 import { formatRelativeTime } from './card-util.ts'
+import { ElephantIcon } from './ElephantIcon.tsx'
 import pkg from '../../package.json' with { type: 'json' }
 
 /** 卡片组件 props：槽位运行时份额 + locale 份额 + 插槽 inject 面。 */
@@ -316,6 +317,9 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
         aria-label={`${t(open ? 'card.collapse' : 'card.expand')}：${baseTitle}`}
         onClick={() => { setOpen(!open) }}
       >
+        <span style={{ flex: 'none', width: '28px', height: '28px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-3)', border: '1px solid var(--dsw-alias-border-l2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden>
+          <ElephantIcon size={18} />
+        </span>
         <span className="dshm-headText">
           <span className="dshm-name">{baseTitle}<span className="dshm-version">v{version}</span></span>
           <span className="dshm-desc">{t('card.description')}</span>
