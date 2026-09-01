@@ -1,5 +1,5 @@
 /**
- * 统一评分模块：BM25 + 强度 + 新鲜度 + 泛词过滤。
+ * 统一评分模块：BM25/BM25F + 强度 + 新鲜度 + 泛词过滤。
  * 单一真相：store / tools / recall 三处 previously 各写一遍 BM25，已收敛至此。
  * @module dsh-echo-memory/scoring
  */
@@ -14,6 +14,22 @@ export const BM25_K1 = 1.2
 export const BM25_B = 0.75
 /** 混合检索时 embedding 余弦的权重（有向量时）。 */
 export const HYBRID_ALPHA = 0.7
+
+/** BM25F 字段权重（v1）：标题 > 标签 > 正文 */
+export const BM25F_W_TITLE = 2.5
+export const BM25F_W_BODY = 1.0
+export const BM25F_W_TAGS = 3.0
+
+/** 停用词：命中不计分，避免“的/了/为什么”这种虚词拉分 */
+export const STOPWORDS: ReadonlySet<string> = new Set([
+  '的', '了', '吗', '啊', '呢', '吧', '在', '是', '有', '和', '与', '又', '也', '就', '都', '还',
+  '为什么', '怎么', '什么', '完全', '无关', '这个', '那个', '这样', '那样', '一些', '一下',
+  '我', '你', '他', '她', '它', '我们', '你们', '他们',
+  '会', '能', '要', '想', '去', '来', '说',
+])
+
+/** 元问题正则：问“为什么召回”这类不该召回 */
+export const META_QUERY_RE = /(为什么.*召回|相关记忆|触发召回)/
 
 export function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
   if (value === undefined) return fallback
@@ -132,7 +148,17 @@ export function expandWithLocalSynonyms(tokens: readonly string[]): string[] {
   return expanded
 }
 
-/** 泛词过滤：低分时只留与最高分近乎相同的命中，避免 Ubuntu 这类泛词一次带回俩；高分时按 0.6 相对阈值。 */
+/** 是否为元问题（问召回本身，不该召回） */
+export function isMetaQuery(query: string): boolean {
+  return META_QUERY_RE.test(query.trim().toLowerCase())
+}
+
+/** 过滤停用词后的有效 token（保持顺序） */
+export function filterStopwords(tokens: readonly string[]): string[] {
+  return tokens.filter(t => !STOPWORDS.has(t))
+}
+
+/** 泛词过滤：低分时只留与最高分近乎相同的命中，避免 Ubuntu 这类泛词一次带回俩；高分时按 0.6 相对阈值。v1 阈值从 0.12 提到 0.25，过滤幽灵命中。 */
 export function filterRecallHits<T extends { readonly score: number }>(hits: readonly T[]): readonly T[] {
   if (hits.length <= 1) return hits
   const max = hits[0]!.score
@@ -140,7 +166,7 @@ export function filterRecallHits<T extends { readonly score: number }>(hits: rea
   if (max < 0.35) {
     return hits.filter(h => h.score >= max * 0.95)
   }
-  return hits.filter(h => h.score >= max * 0.6 && h.score >= 0.12)
+  return hits.filter(h => h.score >= max * 0.6 && h.score >= 0.25)
 }
 
 export interface ScoredHit {
@@ -211,6 +237,139 @@ export function scorePlainBM25(
     const bm25 = bm25ForRecord(record, tokens, idf, fieldLen, avgLen)
     if (bm25 === 0) continue
     const score = bm25 * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
+    hits.push({ record, score })
+  }
+  hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
+  return hits
+}
+
+// ————— BM25F v1 —————
+
+function splitTitleRaw(content: string): { title: string; body: string } {
+  const raw = content.trim()
+  const colon = raw.search(/[:：]/)
+  if (colon > 0 && colon < 24) return { title: raw.slice(0, colon).trim(), body: raw.slice(colon + 1).replace(/^[:：\s]+/, '').trim() }
+  const comma = raw.search(/[，,]/)
+  if (comma > 0 && comma < 24) return { title: raw.slice(0, comma).trim(), body: raw.slice(comma + 1).trim() }
+  if (raw.length <= 20) return { title: raw, body: '' }
+  return { title: '', body: raw }
+}
+
+function countOccurrences(text: string, token: string): number {
+  if (token.length === 0) return 0
+  let c = 0
+  let idx = text.indexOf(token)
+  while (idx !== -1 && c < 5) {
+    c += 1
+    idx = text.indexOf(token, idx + token.length)
+  }
+  return c
+}
+
+function buildBM25FFieldLenMap(candidates: readonly MemoryRecord[]): {
+  titleLen: Map<string, number>; bodyLen: Map<string, number>; tagsLen: Map<string, number>;
+  avgTitleLen: number; avgBodyLen: number; avgTagsLen: number
+} {
+  let totalTitle = 0, totalBody = 0, totalTags = 0
+  const titleLen = new Map<string, number>()
+  const bodyLen = new Map<string, number>()
+  const tagsLen = new Map<string, number>()
+  for (const rec of candidates) {
+    const { title, body } = splitTitleRaw(rec.content)
+    const tl = title.length, bl = body.length, gl = rec.tags.join(' ').length
+    titleLen.set(rec.id, tl); bodyLen.set(rec.id, bl); tagsLen.set(rec.id, gl)
+    totalTitle += tl; totalBody += bl; totalTags += gl
+  }
+  const n = Math.max(1, candidates.length)
+  return { titleLen, bodyLen, tagsLen, avgTitleLen: totalTitle / n || 1, avgBodyLen: totalBody / n || 1, avgTagsLen: totalTags / n || 1 }
+}
+
+function buildBM25FIdfMap(tokens: readonly string[], candidates: readonly MemoryRecord[]): Map<string, number> {
+  const df = new Map<string, number>()
+  for (const tok of tokens) {
+    let c = 0
+    for (const rec of candidates) {
+      const { title, body } = splitTitleRaw(rec.content)
+      const lowerTitle = title.toLowerCase(), lowerBody = body.toLowerCase(), lowerTags = rec.tags.join(' ').toLowerCase()
+      const hit = lowerTitle.includes(tok) || lowerBody.includes(tok) || lowerTags.includes(tok) || rec.tags.some(t => t === tok || t.startsWith(tok))
+      if (hit) c += 1
+    }
+    df.set(tok, c)
+  }
+  const N = candidates.length
+  const idf = new Map<string, number>()
+  for (const tok of tokens) {
+    const f = df.get(tok) ?? 0
+    idf.set(tok, Math.log((N - f + 0.5) / (f + 0.5) + 1))
+  }
+  return idf
+}
+
+function bm25FForRecord(
+  record: MemoryRecord,
+  tokens: readonly string[],
+  idf: ReadonlyMap<string, number>,
+  fieldLens: ReturnType<typeof buildBM25FFieldLenMap>,
+): number {
+  const { title, body } = splitTitleRaw(record.content)
+  const lowerTitle = title.toLowerCase()
+  const lowerBody = body.toLowerCase()
+  const lowerTagsText = record.tags.join(' ').toLowerCase()
+  const tl = fieldLens.titleLen.get(record.id) ?? title.length
+  const bl = fieldLens.bodyLen.get(record.id) ?? body.length
+  const gl = fieldLens.tagsLen.get(record.id) ?? lowerTagsText.length
+  let sum = 0
+  for (const tok of tokens) {
+    const curIdf = idf.get(tok) ?? 0
+    if (curIdf === 0) continue
+    // per-field TF
+    let tfTitle = 0, tfBody = 0, tfTags = 0
+    // title/body: substring count
+    tfTitle = countOccurrences(lowerTitle, tok)
+    tfBody = countOccurrences(lowerBody, tok)
+    // tags: exact/prefix counts (tags are already lower)
+    if (record.tags.includes(tok)) tfTags += 1
+    // prefix matches (≥2 chars)
+    if (tok.length >= 2) {
+      for (const tag of record.tags) if (tag.startsWith(tok) && tag !== tok) tfTags += 0.5
+    }
+    // also substring in tags text
+    const tagOcc = countOccurrences(lowerTagsText, tok)
+    if (tagOcc > 0) tfTags = Math.max(tfTags, tagOcc * 0.5)
+
+    if (tfTitle === 0 && tfBody === 0 && tfTags === 0) continue
+
+    const normTitle = tl === 0 ? 0 : tfTitle / (1 - BM25_B + BM25_B * (tl / Math.max(1, fieldLens.avgTitleLen)))
+    const normBody = bl === 0 ? 0 : tfBody / (1 - BM25_B + BM25_B * (bl / Math.max(1, fieldLens.avgBodyLen)))
+    const normTags = gl === 0 ? tfTags : tfTags / (1 - BM25_B + BM25_B * (gl / Math.max(1, fieldLens.avgTagsLen)))
+
+    const tildeTf = BM25F_W_TITLE * normTitle + BM25F_W_BODY * normBody + BM25F_W_TAGS * normTags
+    if (tildeTf === 0) continue
+    sum += curIdf * ((tildeTf * (BM25_K1 + 1)) / (tildeTf + BM25_K1))
+  }
+  return sum
+}
+
+/**
+ * BM25F 评分（v1）：字段加权 + 全局 IDF + 停用词已在外层过滤
+ * 调用方需已做停用词过滤与同义词膨胀
+ */
+export function scoreBM25F(
+  candidates: readonly MemoryRecord[],
+  tokens: readonly string[],
+  now: number,
+): ScoredHit[] {
+  const effective = filterStopwords(tokens)
+  if (candidates.length === 0 || effective.length === 0) return []
+  // 单 token 不召回：避免“系统”这种单字虚命中
+  if (effective.length < 2) return []
+  const idf = buildBM25FIdfMap(effective, candidates)
+  const fieldLens = buildBM25FFieldLenMap(candidates)
+  const hits: ScoredHit[] = []
+  for (const record of candidates) {
+    const bm25f = bm25FForRecord(record, effective, idf, fieldLens)
+    if (bm25f === 0) continue
+    const score = bm25f * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
     hits.push({ record, score })
   }
   hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))

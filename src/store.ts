@@ -103,14 +103,22 @@ export function normalizeTags(tags: readonly string[] | undefined, max: number):
 import {
   BM25_B,
   BM25_K1,
+  BM25F_W_BODY,
+  BM25F_W_TAGS,
+  BM25F_W_TITLE,
   FRESH_WINDOW_MS,
   HYBRID_ALPHA,
   LOCAL_SYNONYMS,
+  META_QUERY_RE,
+  STOPWORDS,
   clampInt,
   expandWithLocalSynonyms,
   filterRecallHits,
+  filterStopwords,
+  isMetaQuery,
   keywordScore,
   recencyFactor,
+  scoreBM25F,
   scoreHybridBM25,
   scorePlainBM25,
   tieBreak,
@@ -121,14 +129,22 @@ import {
 export {
   BM25_B,
   BM25_K1,
+  BM25F_W_BODY,
+  BM25F_W_TAGS,
+  BM25F_W_TITLE,
   FRESH_WINDOW_MS,
   HYBRID_ALPHA,
   LOCAL_SYNONYMS,
+  META_QUERY_RE,
+  STOPWORDS,
   clampInt,
   expandWithLocalSynonyms,
   filterRecallHits,
+  filterStopwords,
+  isMetaQuery,
   keywordScore,
   recencyFactor,
+  scoreBM25F,
   scoreHybridBM25,
   scorePlainBM25,
   tieBreak,
@@ -452,6 +468,7 @@ export class MemoryStore {
    * @param now - 时间基准。
    */
   searchForRecall(workspace: string, query: string, limit: number, now: number = Date.now()): SearchHit[] {
+    if (isMetaQuery(query)) return []
     const baseTokens = tokenizeForRecall(query)
     if (baseTokens.length === 0) return []
     const tokens = expandWithLocalSynonyms(baseTokens)
@@ -462,7 +479,7 @@ export class MemoryStore {
       candidates.push(record)
     }
     if (candidates.length === 0) return []
-    const hits = scorePlainBM25(candidates, tokens, now)
+    const hits = scoreBM25F(candidates, tokens, now)
     return hits.slice(0, clampInt(limit, 8, 1, 50))
   }
 
