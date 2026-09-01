@@ -125,6 +125,7 @@ import {
   scoreBM25F,
   scoreHybridBM25,
   scorePlainBM25,
+  searchRecall,
   tieBreak,
   tokenizeForRecall,
   __setTokenizerForTest,
@@ -142,6 +143,7 @@ export {
   BM25F_W_TITLE,
   type Tokenizer,
   __setTokenizerForTest,
+  searchRecall,
   FRESH_WINDOW_MS,
   HYBRID_ALPHA,
   LOCAL_SYNONYMS,
@@ -478,10 +480,6 @@ export class MemoryStore {
    * @param now - 时间基准。
    */
   searchForRecall(workspace: string, query: string, limit: number, now: number = Date.now()): SearchHit[] {
-    if (isMetaQuery(query)) return []
-    const baseTokens = tokenizeForRecall(query)
-    if (baseTokens.length === 0) return []
-    const tokens = expandWithLocalSynonyms(baseTokens)
     const candidates: MemoryRecord[] = []
     for (const [, record] of this.table.entries()) {
       if (record.deletedAt !== undefined) continue
@@ -489,8 +487,7 @@ export class MemoryStore {
       candidates.push(record)
     }
     if (candidates.length === 0) return []
-    const hits = scoreBM25F(candidates, tokens, now)
-    return hits.slice(0, clampInt(limit, 8, 1, 50))
+    return searchRecall(candidates, query, now, limit)
   }
 
   /**

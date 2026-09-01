@@ -397,6 +397,21 @@ function bm25FForRecord(
   return sum
 }
 
+/** 召回一站式：分词→同义词→BM25F→过滤，调用方只需给 candidates+query */
+export function searchRecall(
+  candidates: readonly MemoryRecord[],
+  query: string,
+  now: number,
+  limit: number = 8,
+): ScoredHit[] {
+  if (isMetaQuery(query)) return []
+  const base = tokenizeForRecall(query)
+  if (base.length === 0) return []
+  const tokens = expandWithLocalSynonyms(base)
+  const hits = scoreBM25F(candidates, tokens, now)
+  return filterRecallHits(hits).slice(0, clampInt(limit, 8, 1, 50))
+}
+
 /**
  * BM25F 评分（v1）：字段加权 + 全局 IDF + 停用词已在外层过滤
  * 调用方需已做停用词过滤与同义词膨胀
