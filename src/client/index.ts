@@ -21,6 +21,8 @@ import type { MemoryCardFace } from './card-controller.ts'
 import { MemoryPluginCard } from './MemoryPluginCard.tsx'
 import type { MemoryPluginCardProps } from './MemoryPluginCard.tsx'
 import { createElement } from 'react'
+// @ts-ignore platform external provided by shell
+import { createRoot } from 'react-dom/client'
 import { en, zh, type MemoryKey } from './locales.ts'
 import { GlobalDock } from './GlobalDock.tsx'
 
@@ -58,15 +60,10 @@ export function apply(ctx: ClientContext): void {
     const container = document.createElement('div')
     container.id = 'dshm-global-dock-root'
     document.body.appendChild(container)
-    let root: { unmount: () => void; render: (e: unknown) => void } | undefined
-    // react-dom/client 为基线外部，由 shell 提供
-    // @ts-ignore dynamic
-    void import('react-dom/client').then(({ createRoot }: { createRoot: (c: Element) => { unmount: () => void; render: (e: unknown) => void } }) => {
-      root = createRoot(container)
-      root.render(createElement(GlobalDock))
-    })
+    const root = createRoot(container)
+    root.render(createElement(GlobalDock))
     return () => {
-      if (root) root.unmount()
+      root.unmount()
       container.remove()
     }
   }, 'dsh-echo-memory: global dock')
