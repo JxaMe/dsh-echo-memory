@@ -79,17 +79,6 @@ export interface RecallCandidate {
   readonly rank: number
 }
 
-/** 召回期窗口：超过 90 天未更新的记忆，新鲜度因子下限 0.1。 */
-const FRESH_WINDOW_MS = 90 * 24 * 60 * 60 * 1000
-
-function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
-  if (value === undefined) return fallback
-  const truncated = Number.isFinite(value) ? Math.trunc(value) : fallback
-  if (truncated < min) return min
-  if (truncated > max) return max
-  return truncated
-}
-
 /** 记忆正文归一化：trim + 按配置截断（UTF-16 长度计）。 */
 export function normalizeContent(content: string, maxChars: number): string {
   const trimmed = content.trim()
@@ -111,138 +100,64 @@ export function normalizeTags(tags: readonly string[] | undefined, max: number):
   return Object.freeze(result)
 }
 
-/** 新鲜度因子：1（刚更新）→ 0.1（90 天后），线性衰减。 */
-export function recencyFactor(updatedAt: number, now: number): number {
-  const ageMs = Math.max(0, now - updatedAt)
-  return Math.max(0.1, 1 - (ageMs / FRESH_WINDOW_MS) * 0.9)
-}
-
-/** 排序兜底：主键同分时按 updatedAt 降序、id 升序（search 与注入共用）。 */
-function tieBreak(a: MemoryRecord, b: MemoryRecord): number {
-  return b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-}
-
-/** 关键词评分：标签精确 +8/个、标签前缀（≥2 字符）+4/个、正文子串 +2/次（上限 5 次）；无匹配返回 0。 */
-export function keywordScore(record: MemoryRecord, query: string): number {
-  const q = query.trim().toLowerCase()
-  if (q.length === 0) return 1
-  let score = 0
-  if (record.tags.includes(q)) score += 8
-  if (q.length >= 2) {
-    for (const tag of record.tags) {
-      if (tag.startsWith(q)) score += 4
-    }
-  }
-  const content = record.content.toLowerCase()
-  let occurrences = 0
-  let index = content.indexOf(q)
-  while (index !== -1 && occurrences < 5) {
-    occurrences += 1
-    index = content.indexOf(q, index + q.length)
-  }
-  score += occurrences * 2
-  return score
-}
-
-/** 本地同义词表：BM25 之前的轻量膨胀，命中“部署”也能召回“systemd”。无 API Key 时的双保险，回退仍可用。 */
-const LOCAL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  '部署': ['systemd', '发布', '上线', 'deploy', 'systemctl'],
-  'systemd': ['部署', '服务', 'systemctl', 'deploy'],
-  'deploy': ['部署', 'systemd', '发布'],
-  '发布': ['部署', '上线', 'deploy'],
-  '上线': ['部署', '发布'],
-  '前端': ['react', 'ui', '组件', 'vue'],
-  'react': ['前端', 'ui', '组件'],
-  '组件': ['react', '前端', 'ui'],
-  'ui': ['react', '前端', '组件'],
-  '后端': ['api', '服务', '接口'],
-  'api': ['接口', '后端', '服务'],
-  '接口': ['api', '后端'],
-  '数据库': ['db', '存储', 'postgres', 'mysql', 'sqlite'],
-  '存储': ['数据库', 'db', '落盘'],
-  '落盘': ['存储', '持久化', '保存'],
-  '记忆': ['memory', '记住'],
-  '记住': ['记忆', 'memory'],
-  '配置': ['设置', 'config', 'settings'],
-  '设置': ['配置', 'config'],
-})
-
-/** 按需召回的 query 分词：提“systemd 怎么配”中的有效 token，避免整句不命中。 */
-export function tokenizeForRecall(query: string): string[] {
-  const trimmed = query.trim().toLowerCase()
-  if (trimmed.length === 0) return []
-  // 抽取连续的中日韩、字母、数字 token；单字中文也保留（避免“配”丢掉），英文/数字要求 ≥2 避免噪音
-  const raw = trimmed.match(/[\u4e00-\u9fa5]+|[a-z0-9]+/gi) ?? []
-  const seen = new Set<string>()
-  const tokens: string[] = []
-  for (const tok of raw) {
-    const t = tok.toLowerCase()
-    if (t.length === 0 || seen.has(t)) continue
-    if (t.length < 2) continue
-    // 中文长串拆成 2-gram，避免“本机什么系统”整串不命中“本机系统信息”
-    if (/^[\u4e00-\u9fa5]+$/.test(t) && t.length > 4) {
-      for (let i = 0; i < t.length - 1; i++) {
-        const gram = t.slice(i, i + 2)
-        if (seen.has(gram)) continue
-        seen.add(gram)
-        tokens.push(gram)
-        if (tokens.length >= 20) break
-      }
-      if (!seen.has(t) && tokens.length < 20) {
-        seen.add(t)
-        tokens.push(t)
-      }
-    } else {
-      seen.add(t)
-      tokens.push(t)
-    }
-    if (tokens.length >= 20) break
-  }
-  // 中文连续串会把“发布怎么弄”当一整 token，导致同义词表失配；额外扫描已知词表做子串命中
-  for (const key of Object.keys(LOCAL_SYNONYMS)) {
-    const lower = key.toLowerCase()
-    if (seen.has(lower)) continue
-    if (trimmed.includes(lower)) {
-      seen.add(lower)
-      tokens.push(lower)
-      if (tokens.length >= 20) break
-    }
-  }
-  return tokens
-}
+// 评分相关纯函数已收敛至 scoring.ts，此处重导出以保持对 tests/store.test 的兼容
+export {
+  FRESH_WINDOW_MS,
+  clampInt,
+  recencyFactor,
+  tieBreak,
+  keywordScore,
+  LOCAL_SYNONYMS,
+  tokenizeForRecall,
+  expandWithLocalSynonyms,
+  filterRecallHits,
+  BM25_K1,
+  BM25_B,
+  HYBRID_ALPHA,
+  scorePlainBM25,
+  scoreHybridBM25,
+} from './scoring.js'
+import {
+  clampInt,
+  recencyFactor,
+  tieBreak,
+  keywordScore,
+  tokenizeForRecall,
+  expandWithLocalSynonyms,
+  scorePlainBM25,
+  FRESH_WINDOW_MS,
+} from './scoring.js'
 
 let cachedHasKey: boolean | undefined
-/** 检测是否已配 DeepSeek Key（用于远端同义词/embedding，回退到本地 BM25）。 */
+let cachedHasKeyAt = 0
+const HAS_KEY_TTL_MS = 30_000
+/** 检测是否已配 DeepSeek Key（用于远端同义词/embedding，回退到本地 BM25）。带 30s TTL，支持中途配 key 后自动感知。 */
 export function hasDeepSeekKey(): boolean {
-  if (cachedHasKey !== undefined) return cachedHasKey
+  const now = Date.now()
+  if (cachedHasKey !== undefined && now - cachedHasKeyAt < HAS_KEY_TTL_MS) return cachedHasKey
   if (typeof process.env.DEEPSEEK_API_KEY === 'string' && process.env.DEEPSEEK_API_KEY.trim().length > 0) {
     cachedHasKey = true
+    cachedHasKeyAt = now
     return true
   }
   try {
     const raw = readFileSync(join(homedir(), '.dsh', '.credentials.yaml'), 'utf8')
-    cachedHasKey = /DEEPSEEK_API_KEY:\s*sk-/.test(raw)
-    return cachedHasKey
-  } catch { cachedHasKey = false; return false }
+    const m = raw.match(/DEEPSEEK_API_KEY:\s*([^\s#]+)/)
+    const hit = m?.[1] !== undefined && m[1].trim().length > 0
+    cachedHasKey = hit
+    cachedHasKeyAt = now
+    return hit
+  } catch {
+    cachedHasKey = false
+    cachedHasKeyAt = now
+    return false
+  }
 }
 
-/** 基于本地表的同义词膨胀（去重，保留原词，权重交给 BM25 的 IDF）。 */
-export function expandWithLocalSynonyms(tokens: readonly string[]): string[] {
-  const seen = new Set<string>(tokens)
-  const expanded = [...tokens]
-  for (const tok of tokens) {
-    const syns = LOCAL_SYNONYMS[tok]
-    if (syns === undefined) continue
-    for (const s of syns) {
-      const lower = s.toLowerCase()
-      if (seen.has(lower)) continue
-      seen.add(lower)
-      expanded.push(lower)
-      if (expanded.length >= 30) break
-    }
-    if (expanded.length >= 30) break
-  }
-  return expanded
+/** 清除 hasDeepSeekKey 缓存（测试用，或外部在凭证变更后调用）。 */
+export function clearHasKeyCache(): void {
+  cachedHasKey = undefined
+  cachedHasKeyAt = 0
 }
 
 /**
@@ -347,11 +262,26 @@ export class MemoryStore {
     return { existed: false, id, strength: 1, workspace }
   }
 
-  /** 补写向量（后台异步，不阻塞保存确认）。 */
+  /** 补写向量（后台异步，不阻塞保存确认）。用 update 原子合并，避免覆盖并发的 strength/updatedAt。 */
   async setEmbedding(id: string, embedding: readonly number[], now: number = Date.now()): Promise<void> {
+    const frozen = Object.freeze([...embedding])
+    // 优先走原子 update（若表实现支持），否则回退 get+put
+    const tableAny = this.table as unknown as { update?: (key: string, fn: (v: MemoryRecord) => MemoryRecord) => Promise<unknown> }
+    if (typeof tableAny.update === 'function') {
+      try {
+        await tableAny.update(id, (rec: MemoryRecord) => {
+          if (rec.deletedAt !== undefined) return rec
+          return { ...rec, embedding: frozen, embeddingAt: now }
+        })
+        return
+      } catch {
+        // update 失败（如记录不存在）直接返回
+        return
+      }
+    }
     const rec = this.table.get(id)
     if (rec === undefined || rec.deletedAt !== undefined) return
-    await this.table.put(id, { ...rec, embedding: Object.freeze([...embedding]), embeddingAt: now })
+    await this.table.put(id, { ...rec, embedding: frozen, embeddingAt: now })
   }
 
   /**
@@ -473,9 +403,7 @@ export class MemoryStore {
   searchForRecall(workspace: string, query: string, limit: number, now: number = Date.now()): SearchHit[] {
     const baseTokens = tokenizeForRecall(query)
     if (baseTokens.length === 0) return []
-    // 本地同义词膨胀（无 Key 也生效的双保险；有 Key 时远端路径会在 recall.ts 再叠加）
     const tokens = expandWithLocalSynonyms(baseTokens)
-    // 先收集候选池（工作区过滤）
     const candidates: MemoryRecord[] = []
     for (const [, record] of this.table.entries()) {
       if (record.deletedAt !== undefined) continue
@@ -483,48 +411,7 @@ export class MemoryStore {
       candidates.push(record)
     }
     if (candidates.length === 0) return []
-    // BM25 准备：DF 与平均场长
-    const df = new Map<string, number>()
-    for (const tok of tokens) {
-      let c = 0
-      for (const rec of candidates) if (keywordScore(rec, tok) > 0) c += 1
-      df.set(tok, c)
-    }
-    const N = candidates.length
-    const idf = new Map<string, number>()
-    for (const tok of tokens) {
-      const f = df.get(tok) ?? 0
-      // BM25 IDF 平滑：log((N - df +0.5)/(df+0.5)+1)
-      idf.set(tok, Math.log((N - f + 0.5) / (f + 0.5) + 1))
-    }
-    let totalLen = 0
-    const fieldLen = new Map<string, number>()
-    for (const rec of candidates) {
-      const len = rec.content.length + rec.tags.join(' ').length
-      fieldLen.set(rec.id, len)
-      totalLen += len
-    }
-    const avgLen = totalLen / Math.max(1, candidates.length)
-    const k1 = 1.2
-    const b = 0.75
-    const hits: SearchHit[] = []
-    for (const record of candidates) {
-      let bm25 = 0
-      const len = fieldLen.get(record.id) ?? record.content.length
-      for (const tok of tokens) {
-        const tfRaw = keywordScore(record, tok)
-        if (tfRaw === 0) continue
-        // TF 归一：keywordScore 已含 tag 权重，这里当 TF 用
-        const tf = tfRaw
-        const curIdf = idf.get(tok) ?? 0
-        const norm = tf * (k1 + 1) / (tf + k1 * (1 - b + b * (len / Math.max(1, avgLen))))
-        bm25 += curIdf * norm
-      }
-      if (bm25 === 0) continue
-      const score = bm25 * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
-      hits.push({ record, score })
-    }
-    hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
+    const hits = scorePlainBM25(candidates, tokens, now)
     return hits.slice(0, clampInt(limit, 8, 1, 50))
   }
 

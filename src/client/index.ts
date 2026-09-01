@@ -37,8 +37,6 @@ const MEMORY_SETTINGS_NS_VALUE = 'memory'
 const LOCALE_NS = 'settings.memory'
 
 /** Host 返回的运行期统计载荷（与 Host memoryStats() 同形，client 侧自拼类型）。 */
-
-/** Host 返回的运行期统计载荷（与 Host memoryStats() 同形，client 侧自拼类型）。 */
 export interface MemoryStatsPayload {
   readonly injections: { readonly requests: number; readonly withContent: number }
   readonly memories: number

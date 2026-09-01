@@ -1,0 +1,278 @@
+/**
+ * 统一评分模块：BM25 + 强度 + 新鲜度 + 泛词过滤。
+ * 单一真相：store / tools / recall 三处 previously 各写一遍 BM25，已收敛至此。
+ * @module dsh-echo-memory/scoring
+ */
+
+import type { MemoryRecord } from './domain.js'
+
+/** 召回期窗口：超过 90 天未更新的记忆，新鲜度因子下限 0.1。 */
+export const FRESH_WINDOW_MS = 90 * 24 * 60 * 60 * 1000
+
+/** BM25 超参（与现有行为一致，保持可复现）。 */
+export const BM25_K1 = 1.2
+export const BM25_B = 0.75
+/** 混合检索时 embedding 余弦的权重（有向量时）。 */
+export const HYBRID_ALPHA = 0.7
+
+export function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
+  if (value === undefined) return fallback
+  const truncated = Number.isFinite(value) ? Math.trunc(value) : fallback
+  if (truncated < min) return min
+  if (truncated > max) return max
+  return truncated
+}
+
+/** 新鲜度因子：1（刚更新）→ 0.1（90 天后），线性衰减。 */
+export function recencyFactor(updatedAt: number, now: number): number {
+  const ageMs = Math.max(0, now - updatedAt)
+  return Math.max(0.1, 1 - (ageMs / FRESH_WINDOW_MS) * 0.9)
+}
+
+/** 排序兜底：主键同分时按 updatedAt 降序、id 升序（search 与注入共用）。 */
+export function tieBreak(a: MemoryRecord, b: MemoryRecord): number {
+  return b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+}
+
+/** 关键词评分：标签精确 +8/个、标签前缀（≥2 字符）+4/个、正文子串 +2/次（上限 5 次）；无匹配返回 0。 */
+export function keywordScore(record: MemoryRecord, query: string): number {
+  const q = query.trim().toLowerCase()
+  if (q.length === 0) return 1
+  let score = 0
+  if (record.tags.includes(q)) score += 8
+  if (q.length >= 2) {
+    for (const tag of record.tags) {
+      if (tag.startsWith(q)) score += 4
+    }
+  }
+  const content = record.content.toLowerCase()
+  let occurrences = 0
+  let index = content.indexOf(q)
+  while (index !== -1 && occurrences < 5) {
+    occurrences += 1
+    index = content.indexOf(q, index + q.length)
+  }
+  score += occurrences * 2
+  return score
+}
+
+/** 本地同义词表：BM25 之前的轻量膨胀，命中“部署”也能召回“systemd”。无 API Key 时的双保险，回退仍可用。 */
+export const LOCAL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  '部署': ['systemd', '发布', '上线', 'deploy', 'systemctl'],
+  'systemd': ['部署', '服务', 'systemctl', 'deploy'],
+  'deploy': ['部署', 'systemd', '发布'],
+  '发布': ['部署', '上线', 'deploy'],
+  '上线': ['部署', '发布'],
+  '前端': ['react', 'ui', '组件', 'vue'],
+  'react': ['前端', 'ui', '组件'],
+  '组件': ['react', '前端', 'ui'],
+  'ui': ['react', '前端', '组件'],
+  '后端': ['api', '服务', '接口'],
+  'api': ['接口', '后端', '服务'],
+  '接口': ['api', '后端'],
+  '数据库': ['db', '存储', 'postgres', 'mysql', 'sqlite'],
+  '存储': ['数据库', 'db', '落盘'],
+  '落盘': ['存储', '持久化', '保存'],
+  '记忆': ['memory', '记住'],
+  '记住': ['记忆', 'memory'],
+  '配置': ['设置', 'config', 'settings'],
+  '设置': ['配置', 'config'],
+})
+
+/** 按需召回的 query 分词：提“systemd 怎么配”中的有效 token，避免整句不命中。 */
+export function tokenizeForRecall(query: string): string[] {
+  const trimmed = query.trim().toLowerCase()
+  if (trimmed.length === 0) return []
+  const raw = trimmed.match(/[\u4e00-\u9fa5]+|[a-z0-9]+/gi) ?? []
+  const seen = new Set<string>()
+  const tokens: string[] = []
+  for (const tok of raw) {
+    const t = tok.toLowerCase()
+    if (t.length === 0 || seen.has(t)) continue
+    if (t.length < 2) continue
+    // 中文长串：滑动 2-gram（上限 20），避免“本机什么系统”整串不命中
+    if (/^[\u4e00-\u9fa5]+$/.test(t) && t.length > 4) {
+      // 优化：优先取已知词表中的 2-gram，减少噪音；未知再全量
+      const grams: string[] = []
+      for (let i = 0; i < t.length - 1; i++) grams.push(t.slice(i, i + 2))
+      // 先放命中同义词表的 gram
+      for (const g of grams) {
+        if (LOCAL_SYNONYMS[g] !== undefined && !seen.has(g)) {
+          seen.add(g)
+          tokens.push(g)
+          if (tokens.length >= 20) break
+        }
+      }
+      // 再按顺序补剩余 gram（最多补到 20）
+      for (const g of grams) {
+        if (tokens.length >= 20) break
+        if (seen.has(g)) continue
+        seen.add(g)
+        tokens.push(g)
+      }
+      if (!seen.has(t) && tokens.length < 20) {
+        seen.add(t)
+        tokens.push(t)
+      }
+    } else {
+      seen.add(t)
+      tokens.push(t)
+    }
+    if (tokens.length >= 20) break
+  }
+  // 额外扫描已知词表做子串命中（解决“发布怎么弄”整串不拆的同义词失配）
+  for (const key of Object.keys(LOCAL_SYNONYMS)) {
+    const lower = key.toLowerCase()
+    if (seen.has(lower)) continue
+    if (trimmed.includes(lower)) {
+      seen.add(lower)
+      tokens.push(lower)
+      if (tokens.length >= 20) break
+    }
+  }
+  return tokens
+}
+
+/** 基于本地表的同义词膨胀（去重，保留原词，权重交给 BM25 的 IDF）。 */
+export function expandWithLocalSynonyms(tokens: readonly string[]): string[] {
+  const seen = new Set<string>(tokens)
+  const expanded = [...tokens]
+  for (const tok of tokens) {
+    const syns = LOCAL_SYNONYMS[tok]
+    if (syns === undefined) continue
+    for (const s of syns) {
+      const lower = s.toLowerCase()
+      if (seen.has(lower)) continue
+      seen.add(lower)
+      expanded.push(lower)
+      if (expanded.length >= 30) break
+    }
+    if (expanded.length >= 30) break
+  }
+  return expanded
+}
+
+/** 泛词过滤：低分时只留与最高分近乎相同的命中，避免 Ubuntu 这类泛词一次带回俩；高分时按 0.6 相对阈值。 */
+export function filterRecallHits<T extends { readonly score: number }>(hits: readonly T[]): readonly T[] {
+  if (hits.length <= 1) return hits
+  const max = hits[0]!.score
+  if (max < 0.01) return []
+  if (max < 0.35) {
+    return hits.filter(h => h.score >= max * 0.95)
+  }
+  return hits.filter(h => h.score >= max * 0.6 && h.score >= 0.12)
+}
+
+export interface ScoredHit {
+  readonly record: MemoryRecord
+  readonly score: number
+}
+
+function buildIdfMap(tokens: readonly string[], candidates: readonly MemoryRecord[]): Map<string, number> {
+  const df = new Map<string, number>()
+  for (const tok of tokens) {
+    let c = 0
+    for (const rec of candidates) if (keywordScore(rec, tok) > 0) c += 1
+    df.set(tok, c)
+  }
+  const N = candidates.length
+  const idf = new Map<string, number>()
+  for (const tok of tokens) {
+    const f = df.get(tok) ?? 0
+    idf.set(tok, Math.log((N - f + 0.5) / (f + 0.5) + 1))
+  }
+  return idf
+}
+
+function buildFieldLenMap(candidates: readonly MemoryRecord[]): { fieldLen: Map<string, number>; avgLen: number } {
+  let totalLen = 0
+  const fieldLen = new Map<string, number>()
+  for (const rec of candidates) {
+    const len = rec.content.length + rec.tags.join(' ').length
+    fieldLen.set(rec.id, len)
+    totalLen += len
+  }
+  const avgLen = totalLen / Math.max(1, candidates.length)
+  return { fieldLen, avgLen }
+}
+
+function bm25ForRecord(
+  record: MemoryRecord,
+  tokens: readonly string[],
+  idf: ReadonlyMap<string, number>,
+  fieldLen: ReadonlyMap<string, number>,
+  avgLen: number,
+): number {
+  let bm25 = 0
+  const len = fieldLen.get(record.id) ?? record.content.length
+  for (const tok of tokens) {
+    const tf = keywordScore(record, tok)
+    if (tf === 0) continue
+    const curIdf = idf.get(tok) ?? 0
+    bm25 += curIdf * (tf * (BM25_K1 + 1) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * (len / Math.max(1, avgLen)))))
+  }
+  return bm25
+}
+
+/**
+ * 纯 BM25 评分（无 embedding 混合）：用于 store.searchForRecall 与 tools 的无向量路径。
+ * 归一化不在此做（保持与历史 plain 路径一致的原始分），混合路径再归一。
+ */
+export function scorePlainBM25(
+  candidates: readonly MemoryRecord[],
+  tokens: readonly string[],
+  now: number,
+): ScoredHit[] {
+  if (candidates.length === 0 || tokens.length === 0) return []
+  const idf = buildIdfMap(tokens, candidates)
+  const { fieldLen, avgLen } = buildFieldLenMap(candidates)
+  const hits: ScoredHit[] = []
+  for (const record of candidates) {
+    const bm25 = bm25ForRecord(record, tokens, idf, fieldLen, avgLen)
+    if (bm25 === 0) continue
+    const score = bm25 * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
+    hits.push({ record, score })
+  }
+  hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
+  return hits
+}
+
+/**
+ * 混合评分：BM25（归一）+ embedding 余弦。有向量时 hybrid = alpha*cos + (1-alpha)*normBm25，无向量时退化为 normBm25。
+ * 调用方需已备好 queryVec（失败则回退到 scorePlainBM25）。
+ */
+export function scoreHybridBM25(
+  candidates: readonly MemoryRecord[],
+  tokens: readonly string[],
+  queryVec: readonly number[],
+  now: number,
+  cosineFn: (a: readonly number[], b: readonly number[]) => number,
+  alpha: number = HYBRID_ALPHA,
+): ScoredHit[] {
+  if (candidates.length === 0 || tokens.length === 0) return []
+  const idf = buildIdfMap(tokens, candidates)
+  const { fieldLen, avgLen } = buildFieldLenMap(candidates)
+  const bm25Map = new Map<string, number>()
+  let maxBm25 = 0
+  for (const rec of candidates) {
+    const bm25 = bm25ForRecord(rec, tokens, idf, fieldLen, avgLen)
+    bm25Map.set(rec.id, bm25)
+    if (bm25 > maxBm25) maxBm25 = bm25
+  }
+  const hits: ScoredHit[] = []
+  for (const rec of candidates) {
+    const bm25 = bm25Map.get(rec.id) ?? 0
+    const normBm25 = maxBm25 > 0 ? bm25 / maxBm25 : 0
+    let cos = 0
+    if (rec.embedding && rec.embedding.length > 0) {
+      try { cos = Math.max(0, cosineFn(queryVec, rec.embedding)) } catch { cos = 0 }
+    }
+    const hasVec = rec.embedding !== undefined && rec.embedding.length > 0
+    const hybrid = hasVec ? alpha * cos + (1 - alpha) * normBm25 : normBm25
+    if (hybrid === 0) continue
+    const score = hybrid * (1 + Math.log2(rec.strength)) * recencyFactor(rec.updatedAt, now)
+    hits.push({ record: rec, score })
+  }
+  hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
+  return hits
+}

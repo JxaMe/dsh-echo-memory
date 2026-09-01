@@ -34,6 +34,8 @@ export function hasDeepSeekKey(): boolean {
   return hasKeySync()
 }
 
+export { clearHasKeyCache } from './store.js'
+
 /** 余弦相似度（-1..1）。 */
 export function cosine(a: readonly number[], b: readonly number[]): number {
   let dot = 0

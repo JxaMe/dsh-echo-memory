@@ -1,6 +1,6 @@
 {
   "name": "dsh-echo-memory",
-  "version": "0.2.1",
+  "version": "0.2.8",
   "description": "DSH 专用记忆插件：跨会话持久记忆（存储领域 + agent 记忆工具 + 系统提示词注入 + 会话事件自动捕获 + 设置面板卡片）",
   "type": "module",
   "main": "lib/index.js",
@@ -23,7 +23,7 @@
   ],
   "license": "MIT",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsdown",
+    "build": "rm -rf lib && tsc -p tsconfig.build.json && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx/esm --test \"tests/**/*.test.ts\"",
     "prepare": "pnpm run build"

@@ -15,8 +15,6 @@ import '@deepseek-ai/dsh-session'
 import s from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
-// Type-only：pull `ctx.connection` 的 Context merge 与 RPC 类型（host 侧通道注册）。
-import type { HostConnectionRpc } from '@deepseek-ai/dsh-client-connection'
 import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
@@ -65,13 +63,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/**
- * 浏览器卡片 RPC endpoints（`/api` 共享通道上的 2 段式 endpoint）。
- * 两侧拼写必须一致：host 注册与 client 调用各自拼写（跨半侧不产生值依赖，
- * 与官方 `SHELL_NS` 约定同一理由）。
- */
-const MEMORY_PURGE_ENDPOINT = 'dsh-echo-memory/purge-tombstones'
-const MEMORY_STATS_ENDPOINT = 'dsh-echo-memory/stats'
+
 
 /** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
 export default class MemoryService extends Service {
@@ -115,8 +107,6 @@ export default class MemoryService extends Service {
         onChange: () => {},
       })
     })
-    // 浏览器卡片 RPC（彻底删除 + 统计）通道
-    this.registerCardRpc(ctx)
     this.registerPreviewRoute(ctx)
   }
 
@@ -193,38 +183,7 @@ export default class MemoryService extends Service {
     return { injections: store.injectionStats, memories: store.liveCount() }
   }
 
-  /** 注册卡片 RPC（彻底删除 + 统计） */
-  private registerCardRpc(ctx: Context): void {
-    ctx.inject(['connection'], (connectionCtx) => {
-      return this.ctx.effect(() => connectionCtx.connection.rpc.intercept(
-        '/api',
-        endpoint => endpoint === MEMORY_PURGE_ENDPOINT || endpoint === MEMORY_STATS_ENDPOINT,
-        async (endpoint, _payload, _signal) => {
-          const wrap = (value: unknown) => ({ ok: true, value } as const)
-          try {
-            if (endpoint === MEMORY_PURGE_ENDPOINT) {
-              return wrap({ purged: await this.purgeTombstones() })
-            }
-            if (endpoint === MEMORY_STATS_ENDPOINT) {
-              return wrap(this.memoryStats())
-            }
-            return { ok: false, error: { code: 'internal', message: `unknown endpoint: ${endpoint}`, details: {} } } as const
-          } catch (error) {
-            return {
-              ok: false,
-              error: {
-                code: 'internal',
-                message: error instanceof Error ? error.message : String(error),
-                details: {},
-              },
-            } as const
-          }
-        },
-      ), 'dsh-echo-memory intercept')
-    })
-  }
-
-  /** 统计/墓碑清理的 HTTP 直连（供 card fetch，绕过 connection 单拦截器） */
+  /** 统计/墓碑清理的 HTTP 直连（供 card fetch） */
   private registerPreviewRoute(ctx: Context): void {
     ctx.inject(['webServer'], (webCtx) => {
       const regs: Array<() => void> = []

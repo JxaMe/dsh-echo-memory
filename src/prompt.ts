@@ -10,7 +10,6 @@ import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 // 模块增强：dsh-agent 为 AssembleContext 增加当前 agent 字段（用于取会话 cwd）。
 // import type 即可携带该声明，不产生运行时依赖。
 import type {} from '@deepseek-ai/dsh-agent'
-import type { MemoryStore } from './store.js'
 import type { CaptureFeed } from './capture.js'
 
 /** 一次组装读取的注入配置（由调用方从当前设置源投影）。 */
@@ -32,7 +31,7 @@ export interface MemoryInjectionConfig {
  * @param feed - 捕获确认缓冲（按当前会话消费）。
  */
 export function memoryContextText(
-  _store: MemoryStore,
+  _store: unknown,
   _read: () => MemoryInjectionConfig,
   feed: CaptureFeed,
 ): (context: AssembleContext) => string {

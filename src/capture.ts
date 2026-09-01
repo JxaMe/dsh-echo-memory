@@ -31,23 +31,41 @@ export interface CaptureFeedEntry {
 /**
  * 捕获确认缓冲：捕获保存**成功**后才入队；提示词组装时按会话取出
  * （take = 消费），保证「确认 = 真存上了」且只转述一次。
+ * 带 10 分钟 TTL：若会话永不再组装，条目自动过期，避免内存泄漏。
  */
 export class CaptureFeed {
-  private readonly entries: CaptureFeedEntry[] = []
+  private readonly entries: Array<CaptureFeedEntry & { readonly at: number }> = []
+  private static readonly TTL_MS = 10 * 60 * 1000
 
   /** 记一条已落库的捕获；保存失败不得入队（由调用方在 resolve 后调）。 */
   push(entry: CaptureFeedEntry): void {
-    this.entries.push(entry)
+    this.expire()
+    this.entries.push({ ...entry, at: Date.now() })
   }
 
   /** 取出并消费指定会话的全部待确认条目（无则空数组）。 */
   take(sessionId: string): CaptureFeedEntry[] {
+    this.expire()
     const taken = this.entries.filter(entry => entry.sessionId === sessionId)
     if (taken.length === 0) return taken
     const rest = this.entries.filter(entry => entry.sessionId !== sessionId)
     this.entries.length = 0
     this.entries.push(...rest)
-    return taken
+    return taken.map(({ sessionId: sid, content }) => ({ sessionId: sid, content }))
+  }
+
+  private expire(): void {
+    const now = Date.now()
+    const cutoff = now - CaptureFeed.TTL_MS
+    // 惰性清理：超过 TTL 的条目丢弃
+    let write = 0
+    for (let read = 0; read < this.entries.length; read++) {
+      const e = this.entries[read]!
+      if (e.at >= cutoff) {
+        this.entries[write++] = e
+      }
+    }
+    if (write < this.entries.length) this.entries.length = write
   }
 }
 
@@ -64,6 +82,27 @@ export function createCaptureHandler(
   feed: CaptureFeed,
 ): (session: Session, event: SessionEvent) => void {
   const counts = new Map<string, number>()
+  const lastSeen = new Map<string, number>()
+  const SESSION_TTL_MS = 60 * 60 * 1000 // 1h 未活跃的会话计数自动清理
+  const MAX_SESSIONS = 500
+  function gcCounts(): void {
+    if (counts.size < MAX_SESSIONS) return
+    const now = Date.now()
+    for (const [sid, at] of lastSeen) {
+      if (now - at > SESSION_TTL_MS) {
+        counts.delete(sid)
+        lastSeen.delete(sid)
+      }
+    }
+    // 若仍超限，按最旧的淘汰
+    if (counts.size >= MAX_SESSIONS) {
+      const oldest = [...lastSeen.entries()].sort((a, b) => a[1] - b[1]).slice(0, counts.size - MAX_SESSIONS + 1)
+      for (const [sid] of oldest) {
+        counts.delete(sid)
+        lastSeen.delete(sid)
+      }
+    }
+  }
   return (session, event) => {
     if (event.type !== 'user/message' || event.data.source.kind !== 'user') return
     const text = event.data.content
@@ -81,11 +120,18 @@ export function createCaptureHandler(
       const index = normalized.indexOf(pattern)
       if (index === -1) continue
       const sessionKey = session.header.id
+      lastSeen.set(sessionKey, Date.now())
+      gcCounts()
       const used = counts.get(sessionKey) ?? 0
       if (used >= cfg.maxPerSession) return
-      counts.set(sessionKey, used + 1) // 立即占额：连续消息也防穿透
       const claimed = text.slice(index + pattern.length).replace(/^[:：,，。.\s]+/, '').trim()
+      // 过短 claimed 过滤：仅当有 claimed 时才过滤（claimed 为空则回退整句，保留原有行为以兼容“请记住”这类测试）
+      if (claimed.length > 0) {
+        if (claimed.length < 2 || claimed.toLowerCase() === pattern) return
+      }
       const content = claimed.length > 0 ? claimed : text.trim()
+      if (content.length < 2) return
+      counts.set(sessionKey, used + 1) // 校验通过后才占额
       const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
       void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })
         .then(() => {
