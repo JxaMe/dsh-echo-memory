@@ -29,6 +29,7 @@ import {
 } from './settings.js'
 import { registerMemoryRoutes } from './host-routes.js'
 import { createSettingsReader } from './settings-reader.js'
+import { RecallStore } from './recall-store.js'
 
 /** 插件配置：所有部署可调参数都经 cordis.yml 行配置提供，无硬编码 tunable。 */
 export interface Config {
@@ -87,9 +88,7 @@ export default class MemoryService extends Service {
   private readonly config: Config
   private readonly settingsReader: ReturnType<typeof createSettingsReader>
   private store: MemoryStore | undefined
-  private lastRecall: { at: number; query: string; hits: Array<{ id: string; kind: string; content: string; tags: readonly string[]; strength: number }> } | null = null
-  private recallHistory: Array<{ at: number; query: string; hits: Array<{ id: string; kind: string; content: string; tags: readonly string[]; strength: number }> }> = []
-  private static readonly MAX_RECALL_HISTORY = 20
+  private readonly recallStore = new RecallStore()
 
   /**
    * @param ctx - 宿主上下文（storageDomain/systemPrompt/tools 就绪后才实例化）。
@@ -203,8 +202,8 @@ export default class MemoryService extends Service {
     registerMemoryRoutes(ctx, {
       store: this.requireStore(),
       readSettings: () => this.settingsReader.get(),
-      getLastRecall: () => this.lastRecall ?? { at: 0, query: '', hits: [] },
-      getRecallHistory: () => [...this.recallHistory],
+      getLastRecall: () => this.recallStore.last ?? { at: 0, query: '', hits: [] },
+      getRecallHistory: () => this.recallStore.list(),
       memoryStats: () => this.memoryStats(),
       purgeTombstones: () => this.purgeTombstones(),
       listDeleted: (limit) => this.listDeleted(limit),
@@ -258,17 +257,14 @@ export default class MemoryService extends Service {
           return { enabled: s.injectEnabled, limit: s.injectLimit, maxChars: s.injectMaxChars }
         }, agent, messages)
         if (recall === undefined) return decision
-        // 记录最近一次召回，供全局 Dock 瞬态展示 + 历史
+        // 记录召回供 Dock 拉取（latest + history 缓冲，缝隙单一）
         try {
           const q = extractQuery(messages).slice(0, 200)
-          const entry = {
+          this.recallStore.record({
             at: Date.now(),
             query: q,
             hits: recall.rawHits.map(h => ({ id: h.record.id, kind: h.record.kind, content: h.record.content, tags: [...h.record.tags], strength: h.record.strength })),
-          }
-          this.lastRecall = entry
-          this.recallHistory.unshift(entry)
-          if (this.recallHistory.length > MemoryService.MAX_RECALL_HISTORY) this.recallHistory.length = MemoryService.MAX_RECALL_HISTORY
+          })
         } catch {}
         const injection = createRecallMessage(recall.text, recall.hits)
         return { ...decision, messages: [...decision.messages, injection] }
