@@ -75,8 +75,6 @@ export const LOCAL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Objec
   '落盘': ['存储', '持久化', '保存'],
   '记忆': ['memory', '记住'],
   '记住': ['记忆', 'memory'],
-  '配置': ['设置', 'config', 'settings'],
-  '设置': ['配置', 'config'],
 })
 
 /** 按需召回的 query 分词：提“systemd 怎么配”中的有效 token，避免整句不命中。 */
@@ -90,29 +88,36 @@ export function tokenizeForRecall(query: string): string[] {
     const t = tok.toLowerCase()
     if (t.length === 0 || seen.has(t)) continue
     if (t.length < 2) continue
-    // 中文长串：滑动 2-gram（上限 20），避免“本机什么系统”整串不命中
+    // 中文长串：最大匹配切分（优先词表，剩余只保留原串，不全量 2-gram 以降噪）
     if (/^[\u4e00-\u9fa5]+$/.test(t) && t.length > 4) {
-      // 优化：优先取已知词表中的 2-gram，减少噪音；未知再全量
-      const grams: string[] = []
-      for (let i = 0; i < t.length - 1; i++) grams.push(t.slice(i, i + 2))
-      // 先放命中同义词表的 gram
-      for (const g of grams) {
-        if (LOCAL_SYNONYMS[g] !== undefined && !seen.has(g)) {
-          seen.add(g)
-          tokens.push(g)
-          if (tokens.length >= 20) break
+      const dict = new Set(Object.keys(LOCAL_SYNONYMS))
+      let pos = 0
+      let matched = 0
+      while (pos < t.length && tokens.length < 20) {
+        let found: string | undefined
+        // 尝试最长 4 → 2 的词表匹配
+        for (let len = Math.min(4, t.length - pos); len >= 2; len--) {
+          const cand = t.slice(pos, pos + len)
+          if (dict.has(cand)) { found = cand; break }
         }
+        if (found !== undefined) {
+          if (!seen.has(found)) { seen.add(found); tokens.push(found); matched++ }
+          pos += found.length
+        } else {
+          pos += 1
+        }
+        // 防止死循环：若长串无任何词表命中，最多切 3 段后跳出，避免噪音
+        if (matched === 0 && pos >= 4) break
       }
-      // 再按顺序补剩余 gram（最多补到 20）
-      for (const g of grams) {
-        if (tokens.length >= 20) break
-        if (seen.has(g)) continue
-        seen.add(g)
-        tokens.push(g)
-      }
+      // 原长串保留（用于精确匹配“本机系统信息”这类标题）
       if (!seen.has(t) && tokens.length < 20) {
         seen.add(t)
         tokens.push(t)
+      }
+      // 仅当词表完全未命中时，退化为取首个 2-gram 保底（而非全量展开）
+      if (matched === 0 && tokens.length < 20) {
+        const gram = t.slice(0, 2)
+        if (!seen.has(gram)) { seen.add(gram); tokens.push(gram) }
       }
     } else {
       seen.add(t)
