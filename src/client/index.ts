@@ -55,6 +55,9 @@ export function apply(ctx: ClientContext): void {
     ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS_VALUE }),
     () => invokePurge(ctx),
     () => invokeStats(ctx),
+    () => invokeRecycle(ctx),
+    (id) => invokeRestore(ctx, id),
+    (id) => invokePurgeOne(ctx, id),
   )
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
@@ -90,6 +93,29 @@ async function invokeStats(_ctx: ClientContext): Promise<MemoryStatsPayload> {
     throw new Error('dsh-echo-memory: host returned malformed stats')
   }
   return { injections: { requests, withContent }, memories }
+}
+
+async function invokeRecycle(_ctx: ClientContext): Promise<import('./card-controller.ts').RecycleItem[]> {
+  const res = await fetch('/api/dsh-echo-memory/deleted?limit=20', { method: 'GET', headers: { 'Accept': 'application/json' } })
+  if (!res.ok) throw new Error(`recycle fetch failed HTTP ${res.status}`)
+  const value = await res.json() as unknown
+  const items = (value as { readonly items?: unknown }).items
+  if (!Array.isArray(items)) return []
+  return items as import('./card-controller.ts').RecycleItem[]
+}
+
+async function invokeRestore(_ctx: ClientContext, id: string): Promise<boolean> {
+  const res = await fetch('/api/dsh-echo-memory/restore', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
+  if (!res.ok) throw new Error(`restore failed HTTP ${res.status}`)
+  const value = await res.json() as unknown
+  return Boolean((value as { readonly restored?: unknown }).restored)
+}
+
+async function invokePurgeOne(_ctx: ClientContext, id: string): Promise<boolean> {
+  const res = await fetch('/api/dsh-echo-memory/purge-one', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
+  if (!res.ok) throw new Error(`purge-one failed HTTP ${res.status}`)
+  const value = await res.json() as unknown
+  return Boolean((value as { readonly purged?: unknown }).purged)
 }
 
 

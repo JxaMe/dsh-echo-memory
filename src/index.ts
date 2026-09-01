@@ -127,7 +127,7 @@ export default class MemoryService extends Service {
     this.registerPrompt()
     this.registerRecall()
     this.registerCapture()
-    console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget; recall: on-demand)')
+    console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget, memory_restore; recall: on-demand; recycle: on)')
     if (hasDeepSeekKey()) {
       void this.backfillEmbeddings().catch(err => console.warn('[dsh-echo-memory] backfill embeddings failed', err))
     }
@@ -169,12 +169,32 @@ export default class MemoryService extends Service {
     return this.requireStore().forget(id, this.readSettings().deletionMode)
   }
 
+  /** 恢复一条墓碑记忆 */
+  restore(id: string): Promise<boolean> {
+    return this.requireStore().restore(id)
+  }
+
   /**
    * 彻底清除全部墓碑记录（浏览器卡片「彻底删除」按钮的后端动作）。
    * @returns 本次清除的墓碑条数。
    */
   purgeTombstones(): Promise<number> {
     return this.requireStore().purgeDeleted()
+  }
+
+  /** 列出墓碑（回收站） */
+  listDeleted(limit: number = 20): readonly import('./domain.js').MemoryRecord[] {
+    return this.requireStore().listDeleted(limit)
+  }
+
+  /** 恢复单条墓碑 */
+  restoreDeleted(id: string): Promise<boolean> {
+    return this.requireStore().restore(id)
+  }
+
+  /** 单条墓碑彻底删除 */
+  purgeOne(id: string): Promise<boolean> {
+    return this.requireStore().purgeOne(id)
   }
 
   /** 运行期统计（浏览器卡片展示）：注入次数/命中数 + 活跃记忆条数。 */
@@ -206,6 +226,56 @@ export default class MemoryService extends Service {
         handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
           try {
             const purged = await this.purgeTombstones()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ purged }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/deleted',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const url = new URL(_req.url ?? '/api/dsh-echo-memory/deleted', 'http://localhost')
+            const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
+            const items = this.listDeleted(limit)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ items }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/restore',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const body = await readJsonBody(_req)
+            const id = typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : ''
+            if (!id) throw new Error('missing id')
+            const restored = await this.restoreDeleted(id)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ restored }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(error) }))
+          }
+        },
+      }))
+      regs.push(webCtx.webServer.register({
+        kind: 'exact',
+        path: '/api/dsh-echo-memory/purge-one',
+        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+          try {
+            const body = await readJsonBody(_req)
+            const id = typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : ''
+            if (!id) throw new Error('missing id')
+            const purged = await this.purgeOne(id)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ purged }))
           } catch (error) {
@@ -304,6 +374,14 @@ export default class MemoryService extends Service {
     }
     return store
   }
+}
+
+async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  const raw = Buffer.concat(chunks).toString('utf8')
+  if (!raw) return {}
+  return JSON.parse(raw) as unknown
 }
 
 /** 存储后端根目录（与 dsh 标准装配一致：`$DSH_HOME/storages`，默认 `~/.dsh/storages`）。 */

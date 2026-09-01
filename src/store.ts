@@ -314,6 +314,44 @@ export class MemoryStore {
     return doomed.length
   }
 
+  /** 列出墓碑（最近删除），按 deletedAt 降序。 */
+  listDeleted(limit: number = 20): MemoryRecord[] {
+    const out: MemoryRecord[] = []
+    for (const [, record] of this.table.entries()) {
+      if (record.deletedAt !== undefined) out.push(record)
+    }
+    out.sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0) || (a.id < b.id ? -1 : 1))
+    return out.slice(0, clampInt(limit, 20, 1, 100))
+  }
+
+  /** 恢复单条墓碑（清除 deletedAt），不存在或未删除返回 false。 */
+  async restore(id: string): Promise<boolean> {
+    const rec = this.table.get(id)
+    if (rec === undefined || rec.deletedAt === undefined) return false
+    const restored: MemoryRecord = {
+      id: rec.id,
+      workspace: rec.workspace,
+      kind: rec.kind,
+      content: rec.content,
+      tags: rec.tags,
+      strength: rec.strength,
+      source: rec.source,
+      createdAt: rec.createdAt,
+      updatedAt: rec.updatedAt,
+      ...(rec.embedding !== undefined ? { embedding: rec.embedding } : {}),
+      ...(rec.embeddingAt !== undefined ? { embeddingAt: rec.embeddingAt } : {}),
+    }
+    await this.table.put(id, restored)
+    return true
+  }
+
+  /** 单条墓碑彻底删除（仅当已是墓碑时），返回是否删除。 */
+  async purgeOne(id: string): Promise<boolean> {
+    const rec = this.table.get(id)
+    if (rec === undefined || rec.deletedAt === undefined) return false
+    return this.table.delete(id)
+  }
+
   /**
    * 检索记忆：按查询关键词评分（标签精确 > 标签前缀 > 正文子串），
    * 乘以强度与新鲜度因子后降序，同分按 updatedAt 降序、id 升序。

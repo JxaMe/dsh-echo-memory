@@ -249,5 +249,33 @@ export function memoryTools(
     },
   })
 
-  return [save, search, forget]
+  const restore = defineTool({
+    name: 'memory_restore',
+    description: '恢复一条已删除（墓碑）的记忆（仅墓碑模式下有效）。id 来自回收站或最近删除列表。',
+    parameters: {
+      id: {
+        type: 'string',
+        required: true,
+        description: '要恢复的记忆 id',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          restored: { type: 'boolean', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.restored ? '记忆已恢复。' : '未找到该墓碑记忆（可能已彻底删除或未被删除）。',
+      }],
+    },
+    async execute(args) {
+      return { restored: await store.restore(args.id) }
+    },
+  })
+
+  return [save, search, forget, restore]
 }

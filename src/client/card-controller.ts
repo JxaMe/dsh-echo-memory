@@ -71,6 +71,24 @@ export type MemoryPurgeState =
   | { phase: 'done'; purged: number }
   | { phase: 'failed' }
 
+/** 回收站条目（Host /api/dsh-echo-memory/deleted 返回形状）。 */
+export interface RecycleItem {
+  readonly id: string
+  readonly content: string
+  readonly kind: string
+  readonly workspace: string
+  readonly tags: readonly string[]
+  readonly strength: number
+  readonly deletedAt: number
+}
+
+/** 回收站列表瞬时状态。 */
+export type RecycleState =
+  | { phase: 'idle' }
+  | { phase: 'loading' }
+  | { phase: 'done'; items: readonly RecycleItem[] }
+  | { phase: 'failed' }
+
 /** Host 返回的运行期统计载荷（读写两侧自拼类型，不跨半侧值依赖）。 */
 export interface MemoryStatsPayload {
   readonly injections: { readonly requests: number; readonly withContent: number }
@@ -107,6 +125,8 @@ export interface MemoryCardState {
   deletionMode: MemoryCardChoiceState
   /** 「彻底删除」动作反馈（按钮点击后更新）。 */
   purge: MemoryPurgeState
+  /** 回收站列表。 */
+  recycle: RecycleState
   /** 运行期统计（卡片展开时拉取）。 */
   stats: MemoryStatsState
 }
@@ -133,6 +153,12 @@ export interface MemoryCardFace {
   purgeTombstones: () => Promise<void>
   /** 刷新运行期统计（卡片展开时调用；结果进 state.stats）。 */
   refreshStats: () => void
+  /** 刷新回收站列表。 */
+  refreshRecycle: () => void
+  /** 恢复单条墓碑。 */
+  restoreOne: (id: string) => Promise<void>
+  /** 单条墓碑彻底删除。 */
+  purgeOne: (id: string) => Promise<void>
 }
 
 /** 一条暂存编辑。 */
@@ -158,6 +184,7 @@ function initial(): MemoryCardState {
     captureMaxPerSession: { text: '', overridden: false, invalid: false },
     deletionMode: { value: 'tombstone', overridden: false },
     purge: { phase: 'idle' },
+    recycle: { phase: 'idle' },
     stats: { phase: 'idle' },
   }
 }
@@ -203,6 +230,9 @@ export class MemoryCardController {
     private readonly scope: SettingsScope<MemorySettings>,
     private readonly purgeTombstones: () => Promise<number>,
     private readonly loadStats: () => Promise<MemoryStatsPayload>,
+    private readonly loadRecycle: () => Promise<readonly RecycleItem[]> = async () => [],
+    private readonly restoreOneFn: (id: string) => Promise<boolean> = async () => false,
+    private readonly purgeOneFn: (id: string) => Promise<boolean> = async () => false,
   ) {
     this.store = createSnapshotStore(initial())
     scope.subscribe(() => this.reseed())
@@ -221,6 +251,9 @@ export class MemoryCardController {
       discard: () => { this.discard() },
       purgeTombstones: () => this.purge(),
       refreshStats: () => { void this.refreshStats() },
+      refreshRecycle: () => { void this.refreshRecycle() },
+      restoreOne: (id) => this.restoreOne(id),
+      purgeOne: (id) => this.purgeOne(id),
     }
   }
 
@@ -250,6 +283,7 @@ export class MemoryCardController {
     try {
       const purged = await this.purgeTombstones()
       this.emitPurge({ phase: 'done', purged })
+      await this.refreshRecycle()
     } catch (_purgeFailure) {
       this.emitPurge({ phase: 'failed' })
     }
@@ -259,6 +293,28 @@ export class MemoryCardController {
     this.store.update((draft) => {
       draft.purge = state
     })
+  }
+
+  private async refreshRecycle(): Promise<void> {
+    const current = this.store.getSnapshot()
+    if (current.recycle.phase === 'loading') return
+    this.store.update((draft) => { draft.recycle = { phase: 'loading' } })
+    try {
+      const items = await this.loadRecycle()
+      this.store.update((draft) => { draft.recycle = { phase: 'done', items } })
+    } catch {
+      this.store.update((draft) => { draft.recycle = { phase: 'failed' } })
+    }
+  }
+
+  private async restoreOne(id: string): Promise<void> {
+    try { await this.restoreOneFn(id) } catch {}
+    await this.refreshRecycle()
+  }
+
+  private async purgeOne(id: string): Promise<void> {
+    try { await this.purgeOneFn(id) } catch {}
+    await this.refreshRecycle()
   }
 
   /** 拉取运行期统计（卡片展开时触发；失败显示失败态，不打断卡片）。 */
@@ -377,6 +433,7 @@ export class MemoryCardController {
       captureMaxPerSession: this.textState('captureMaxPerSession'),
       deletionMode: this.choiceState('deletionMode'),
       purge: this.store.getSnapshot().purge,
+      recycle: this.store.getSnapshot().recycle,
       stats: this.store.getSnapshot().stats,
     }
   }

@@ -143,8 +143,8 @@ test('集成：工具 schema 声明（参数/output 形状）与恶意输入护�
   const dir = await mkdtemp(join(tmpdir(), 'dsh-int-'))
   try {
     const { tools } = await openStore(dir)
-    // 三工具名称
-    assert.deepEqual(tools.map(t => t!.name), ['memory_save', 'memory_search', 'memory_forget'])
+    // 四工具名称（新增 memory_restore）
+    assert.deepEqual(tools.map(t => t!.name), ['memory_save', 'memory_search', 'memory_forget', 'memory_restore'])
     // 参数 schema：object + properties + required 数组（save 必填 content；forget 必填 id）
     const saveParams = tools[0]!.parameters as { type: string; properties: Record<string, unknown>; required: string[] }
     assert.equal(saveParams.type, 'object')

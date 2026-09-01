@@ -79,6 +79,15 @@ textarea.dshm-input { height: auto; min-height: 72px; padding: 8px 12px; resize:
 .dshm-purgeRow { display: flex; align-items: center; gap: 12px; }
 .dshm-danger { border-color: var(--dsw-alias-label-error); color: var(--dsw-alias-label-error); background: none; }
 .dshm-danger:hover:not(:disabled) { background: var(--dsw-alias-label-error); color: var(--dsw-alias-bg-layer-3); }
+.dshm-recycle { border-top: 1px solid var(--dsw-alias-border-l2); padding: 12px 0; }
+.dshm-recycleHead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dshm-recycleTitle { flex: 1; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.dshm-recycleList { display: flex; flex-direction: column; gap: 8px; }
+.dshm-recycleItem { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-3); }
+.dshm-recycleContent { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-primary); word-break: break-word; }
+.dshm-recycleMeta { font-size: 11px; color: var(--dsw-alias-label-tertiary); margin-top: 2px; }
+.dshm-recycleActions { display: flex; gap: 6px; flex: none; }
+.dshm-btnSmall { padding: 3px 10px; font-size: 12px; }
 `
   document.head.appendChild(tag)
 }
@@ -254,9 +263,12 @@ function renderStats(t: (key: MemoryKey) => string, data: { readonly injections:
 export function MemoryPluginCard(props: MemoryPluginCardProps) {
   const [open, setOpen] = useState(false)
   ensureCardStyles()
-  // 展开时拉取一次运行期统计（重复展开会再拉，数据保鲜）。
+  // 展开时拉取一次运行期统计与回收站（重复展开会再拉，数据保鲜）。
   useEffect(() => {
-    if (open) props.refreshStats()
+    if (open) {
+      props.refreshStats()
+      props.refreshRecycle()
+    }
   }, [open, props])
   const { t } = props
   const state = props.useMemoryCard(snapshot => snapshot)
@@ -380,34 +392,73 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
             />
             {state.deletionMode.value === 'tombstone'
               ? (
-                <div className="dshm-field dshm-purge">
-                  <p className="dshm-hint">{t('field.purge.hint')}</p>
-                  <div className="dshm-purgeRow">
-                    <button
-                      type="button"
-                      className="dshm-btn dshm-danger"
-                      disabled={!writable || state.purge.phase === 'busy'}
-                      onClick={() => {
-                        if (!window.confirm(t('action.purge.confirm'))) return
-                        void props.purgeTombstones()
-                      }}
-                    >
-                      {state.purge.phase === 'busy' ? t('action.purge.busy') : t('action.purge')}
-                    </button>
-                    {state.purge.phase === 'done'
-                      ? (
-                        <p className="dshm-hint" role="status">
-                          {state.purge.purged > 0
-                            ? t('status.purge.done').replaceAll('{n}', String(state.purge.purged))
-                            : t('status.purge.empty')}
-                        </p>
-                      )
-                      : null}
-                    {state.purge.phase === 'failed'
-                      ? <p className="dshm-invalid" role="status">{t('status.purge.failed')}</p>
-                      : null}
+                <>
+                  <div className="dshm-field dshm-purge">
+                    <p className="dshm-hint">{t('field.purge.hint')}</p>
+                    <div className="dshm-purgeRow">
+                      <button
+                        type="button"
+                        className="dshm-btn dshm-danger"
+                        disabled={!writable || state.purge.phase === 'busy'}
+                        onClick={() => {
+                          if (!window.confirm(t('action.purge.confirm'))) return
+                          void props.purgeTombstones()
+                        }}
+                      >
+                        {state.purge.phase === 'busy' ? t('action.purge.busy') : t('action.purge')}
+                      </button>
+                      {state.purge.phase === 'done'
+                        ? (
+                          <p className="dshm-hint" role="status">
+                            {state.purge.purged > 0
+                              ? t('status.purge.done').replaceAll('{n}', String(state.purge.purged))
+                              : t('status.purge.empty')}
+                          </p>
+                        )
+                        : null}
+                      {state.purge.phase === 'failed'
+                        ? <p className="dshm-invalid" role="status">{t('status.purge.failed')}</p>
+                        : null}
+                    </div>
                   </div>
-                </div>
+                  <div className="dshm-recycle">
+                    <div className="dshm-recycleHead">
+                      <span className="dshm-recycleTitle">{t('field.recycle.title')}</span>
+                      <button type="button" className="dshm-reset" onClick={() => { props.refreshRecycle() }}>{t('action.recycle.refresh')}</button>
+                    </div>
+                    <p className="dshm-hint" style={{ marginBottom: '8px' }}>{t('field.recycle.hint')}</p>
+                    {state.recycle.phase === 'loading'
+                      ? <p className="dshm-hint">{t('dock.loading')}</p>
+                      : state.recycle.phase === 'failed'
+                        ? <p className="dshm-invalid">{t('status.recycle.failed')}</p>
+                        : state.recycle.phase === 'done' && state.recycle.items.length === 0
+                          ? <p className="dshm-hint">{t('field.recycle.empty')}</p>
+                          : state.recycle.phase === 'done'
+                            ? (
+                              <>
+                                <p className="dshm-hint" style={{ marginBottom: '6px' }}>{t('field.recycle.count').replaceAll('{n}', String(state.recycle.items.length))}</p>
+                                <div className="dshm-recycleList">
+                                  {state.recycle.items.map(item => (
+                                    <div key={item.id} className="dshm-recycleItem">
+                                      <div className="dshm-recycleContent">
+                                        <div>{item.content}</div>
+                                        <div className="dshm-recycleMeta">{item.kind} · {item.workspace}{item.tags.length > 0 ? ` · #${item.tags.join(' #')}` : ''} · {new Date(item.deletedAt).toLocaleString()}</div>
+                                      </div>
+                                      <div className="dshm-recycleActions">
+                                        <button type="button" className="dshm-btn dshm-btnSmall" disabled={!writable} onClick={() => { void props.restoreOne(item.id) }}>{t('action.recycle.restore')}</button>
+                                        <button type="button" className="dshm-btn dshm-btnSmall dshm-danger" disabled={!writable} onClick={() => {
+                                          if (!window.confirm(t('action.recycle.purgeOne.confirm'))) return
+                                          void props.purgeOne(item.id)
+                                        }}>{t('action.recycle.purgeOne')}</button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )
+                            : null}
+                  </div>
+                </>
               )
               : null}
             <div className="dshm-footer">
