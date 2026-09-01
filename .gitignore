@@ -2,3 +2,7 @@ node_modules/
 lib/
 AGENTS.md
 docs/
+.env
+.env.*
+*.credentials.yaml
+.credentials.yaml
