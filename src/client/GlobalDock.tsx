@@ -96,6 +96,9 @@ export function GlobalDock() {
   const [isDropOver, setIsDropOver] = useState(false)
   const [isPanelDropOver, setIsPanelDropOver] = useState(false)
   const [dropToast, setDropToast] = useState<string | null>(null)
+  const [suggestPool, setSuggestPool] = useState<MemoryRecord[]>([])
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showSuggest, setShowSuggest] = useState(false)
   const lastAtRef = useRef(0)
   const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const dropToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -246,6 +249,57 @@ export function GlobalDock() {
     return () => { cancelled = true }
   }, [showManage, activeTab])
 
+  // 搜索联想池：面板打开时拉一次全量用于本地联想
+  useEffect(() => {
+    if (!showManage || activeTab !== 'memory') return
+    let cancelled = false
+    const fetchPool = async () => {
+      try {
+        const res = await fetch('/api/dsh-echo-memory/list?limit=50', { headers: { Accept: 'application/json' } })
+        if (!res.ok) return
+        const data = (await res.json()) as { items: MemoryRecord[] }
+        if (cancelled) return
+        setSuggestPool(Array.isArray(data.items) ? data.items : [])
+      } catch {}
+    }
+    void fetchPool()
+    return () => { cancelled = true }
+  }, [showManage, activeTab])
+
+  // 根据输入生成联想（标签优先，其次标题）
+  useEffect(() => {
+    const q = manageQuery.trim().toLowerCase()
+    if (q.length < 1) { setSuggestions([]); setShowSuggest(false); return }
+    // 输入已是完整标签时不提示
+    const seen = new Set<string>()
+    const out: string[] = []
+    const add = (s: string) => {
+      const t = s.trim()
+      if (t.length < 1 || t.length > 24 || seen.has(t.toLowerCase())) return
+      const lower = t.toLowerCase()
+      if (!lower.includes(q)) return
+      // 完全等于输入的不提示
+      if (lower === q) return
+      seen.add(lower)
+      out.push(t)
+    }
+    for (const r of suggestPool) {
+      for (const tag of r.tags) { add(tag); if (out.length >= 8) break }
+      if (out.length >= 8) break
+    }
+    for (const r of suggestPool) {
+      const { title } = splitTitle(r.content)
+      if (title) add(title)
+      const head = r.content.trim().slice(0, 20).split(/[\s，,、:：]+/)[0]
+      if (head && head.length >= 2) add(head)
+      if (out.length >= 8) break
+    }
+    out.sort((a, b) => a.length - b.length)
+    const sliced = out.slice(0, 6)
+    setSuggestions(sliced)
+    setShowSuggest(sliced.length > 0)
+  }, [manageQuery, suggestPool])
+
   // 清理 toast 定时器
   useEffect(() => () => { if (dropToastTimer.current) clearTimeout(dropToastTimer.current) }, [])
 
@@ -337,10 +391,12 @@ export function GlobalDock() {
 
           {activeTab === 'memory' ? (
             <>
-              <div style={{ padding: '10px 14px', flexShrink: 0 }}>
+              <div style={{ padding: '10px 14px', flexShrink: 0, position: 'relative' }}>
                 <input
                   value={manageQuery}
                   onChange={(e) => setManageQuery(e.target.value)}
+                  onFocus={() => { if (suggestions.length > 0) setShowSuggest(true) }}
+                  onBlur={() => { setTimeout(() => setShowSuggest(false), 150) }}
                   placeholder="搜索记忆…"
                   style={{
                     width: '100%',
@@ -354,6 +410,24 @@ export function GlobalDock() {
                     outline: 'none',
                   }}
                 />
+                {showSuggest && suggestions.length > 0 && (
+                  <div style={{ position: 'absolute', top: '38px', left: '14px', right: '14px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 10, overflow: 'hidden' }}>
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); setManageQuery(s); setShowSuggest(false) }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '12px', color: 'var(--dsw-alias-label-primary)' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--dsw-alias-bg-layer-3)' }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                      >
+                        <span style={{ color: 'var(--dsw-alias-label-tertiary)' }}>⌕</span>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', flexShrink: 0 }}>回车搜索</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px', minHeight: 0 }}>
