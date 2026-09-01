@@ -27,6 +27,7 @@ import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
   type DeletionMode, type MemorySettings,
 } from './settings.js'
+import { registerMemoryRoutes } from './host-routes.js'
 
 /** 插件配置：所有部署可调参数都经 cordis.yml 行配置提供，无硬编码 tunable。 */
 export interface Config {
@@ -205,84 +206,24 @@ export default class MemoryService extends Service {
     return { injections: store.injectionStats, memories: store.liveCount() }
   }
 
-  /** 统计/墓碑清理的 HTTP 直连（供 card/Dock fetch） */
+  /** 统计/墓碑清理的 HTTP 直连（供 card/Dock fetch）— 薄转接，逻辑在 host-routes */
   private registerPreviewRoute(ctx: Context): void {
-    ctx.inject(['webServer'], (webCtx) => {
-      const regs: Array<() => void> = []
-      const json = (res: import('node:http').ServerResponse, body: unknown, status = 200): void => {
-        res.writeHead(status, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify(body))
-      }
-      const route = (path: string, handler: (req: import('node:http').IncomingMessage) => Promise<unknown>): void => {
-        regs.push(webCtx.webServer.register({
-          kind: 'exact',
-          path,
-          handler: async (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-            try {
-              const body = await handler(req)
-              json(res, body)
-            } catch (error) {
-              json(res, { error: String(error) }, 500)
-            }
-          },
-        }))
-      }
-      route('/api/dsh-echo-memory/stats', async () => this.memoryStats())
-      route('/api/dsh-echo-memory/purge', async () => ({ purged: await this.purgeTombstones() }))
-      route('/api/dsh-echo-memory/deleted', async (req) => {
-        const url = new URL(req.url ?? '/api/dsh-echo-memory/deleted', 'http://localhost')
-        const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
-        return { items: this.listDeleted(limit) }
-      })
-      route('/api/dsh-echo-memory/restore', async (req) => {
-        const body = await readJsonBody(req) as { id?: unknown }
-        const id = typeof body.id === 'string' ? body.id : ''
-        if (!id) throw new Error('missing id')
-        return { restored: await this.restore(id) }
-      })
-      route('/api/dsh-echo-memory/purge-one', async (req) => {
-        const body = await readJsonBody(req) as { id?: unknown }
-        const id = typeof body.id === 'string' ? body.id : ''
-        if (!id) throw new Error('missing id')
-        return { purged: await this.purgeOne(id) }
-      })
-      route('/api/dsh-echo-memory/update', async (req) => {
-        const body = await readJsonBody(req) as { id?: unknown; content?: unknown; tags?: unknown }
-        const id = typeof body.id === 'string' ? body.id : ''
-        if (!id) throw new Error('missing id')
-        const content = typeof body.content === 'string' ? body.content : undefined
-        const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
-        const patch: { content?: string; tags?: readonly string[] } = {}
-        if (content !== undefined) patch.content = content
-        if (tags !== undefined) patch.tags = tags
-        return { updated: await this.updateMemory(id, patch) }
-      })
-      route('/api/dsh-echo-memory/last-recall', async () => this.lastRecall ?? { at: 0, query: '', hits: [] })
-      route('/api/dsh-echo-memory/recall-history', async () => ({ items: [...this.recallHistory] }))
-      route('/api/dsh-echo-memory/list', async (req) => {
-        const url = new URL(req.url ?? '/api/dsh-echo-memory/list', 'http://localhost')
-        const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
-        const q = url.searchParams.get('q') ?? ''
-        const items = q.trim().length > 0
-          ? this.searchRecent(q, limit).map(h => h.record)
-          : this.listRecent(limit)
-        return { items }
-      })
-      route('/api/dsh-echo-memory/save', async (req) => {
-        const body = await readJsonBody(req) as { content?: unknown; tags?: unknown; kind?: unknown; workspace?: unknown }
-        const content = typeof body.content === 'string' ? body.content : ''
-        const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
-        const kind = typeof body.kind === 'string' ? body.kind as import('./domain.js').MemoryKind : undefined
-        const workspace = typeof body.workspace === 'string' ? body.workspace : this.config.defaultWorkspace
-        return this.save({ content, tags, kind, workspace })
-      })
-      route('/api/dsh-echo-memory/forget', async (req) => {
-        const body = await readJsonBody(req) as { id?: unknown }
-        const id = typeof body.id === 'string' ? body.id : ''
-        if (!id) throw new Error('missing id')
-        return { ok: await this.forget(id) }
-      })
-      return () => { for (const dispose of regs) dispose() }
+    registerMemoryRoutes(ctx, {
+      store: this.requireStore(),
+      readSettings: this.readSettings,
+      getLastRecall: () => this.lastRecall ?? { at: 0, query: '', hits: [] },
+      getRecallHistory: () => [...this.recallHistory],
+      memoryStats: () => this.memoryStats(),
+      purgeTombstones: () => this.purgeTombstones(),
+      listDeleted: (limit) => this.listDeleted(limit),
+      restore: (id) => this.restore(id),
+      purgeOne: (id) => this.purgeOne(id),
+      updateMemory: (id, patch) => this.updateMemory(id, patch),
+      listRecent: (limit) => this.listRecent(limit),
+      searchRecent: (q, limit) => this.searchRecent(q, limit),
+      save: (input) => this.save(input),
+      forget: (id) => this.forget(id),
+      defaultWorkspace: this.config.defaultWorkspace,
     })
   }
 
