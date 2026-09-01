@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/client/assets/elephant.webp" width="96" alt="dsh-echo-memory logo - 步步象" />
+</p>
+
 # dsh-echo-memory
 
 > DSH（DeepSeek Harness）专用的跨会话持久记忆插件：让 agent 记住你的偏好、项目约束与已定决策，并在后续会话**自动想起**。
