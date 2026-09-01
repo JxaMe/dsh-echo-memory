@@ -89,19 +89,20 @@ export function apply(ctx: ClientContext): void {
  * @param _ctx - 未使用，保留签名
  * @returns 本次清除的墓碑条数；失败抛出
  */
+async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
+  const res = await fetch(path, init)
+  if (!res.ok) throw new Error(`${path} fetch failed HTTP ${res.status}`)
+  return res.json() as unknown
+}
+
 async function invokePurge(_ctx: ClientContext): Promise<number> {
-  const res = await fetch('/api/dsh-echo-memory/purge', { method: 'POST', headers: { 'Accept': 'application/json' } })
-  if (!res.ok) throw new Error(`purge fetch failed HTTP ${res.status}`)
-  const value = await res.json() as unknown
+  const value = await fetchJson('/api/dsh-echo-memory/purge', { method: 'POST', headers: { 'Accept': 'application/json' } })
   const purged = (value as { readonly purged?: unknown }).purged
   return typeof purged === 'number' ? purged : 0
 }
 
-/** 拉取 Host 运行期统计（注入次数/命中 + 记忆条数）——改走 webServer 直连 */
 async function invokeStats(_ctx: ClientContext): Promise<MemoryStatsPayload> {
-  const res = await fetch('/api/dsh-echo-memory/stats', { method: 'GET', headers: { 'Accept': 'application/json' } })
-  if (!res.ok) throw new Error(`stats fetch failed HTTP ${res.status}`)
-  const value = await res.json() as unknown
+  const value = await fetchJson('/api/dsh-echo-memory/stats', { method: 'GET', headers: { 'Accept': 'application/json' } })
   const injections = (value as { readonly injections?: unknown }).injections
   const memories = (value as { readonly memories?: unknown }).memories
   const requests = (injections as { readonly requests?: unknown } | undefined)?.requests
@@ -113,32 +114,24 @@ async function invokeStats(_ctx: ClientContext): Promise<MemoryStatsPayload> {
 }
 
 async function invokeRecycle(_ctx: ClientContext): Promise<import('./card-controller.ts').RecycleItem[]> {
-  const res = await fetch('/api/dsh-echo-memory/deleted?limit=20', { method: 'GET', headers: { 'Accept': 'application/json' } })
-  if (!res.ok) throw new Error(`recycle fetch failed HTTP ${res.status}`)
-  const value = await res.json() as unknown
+  const value = await fetchJson('/api/dsh-echo-memory/deleted?limit=20', { method: 'GET', headers: { 'Accept': 'application/json' } })
   const items = (value as { readonly items?: unknown }).items
   if (!Array.isArray(items)) return []
   return items as import('./card-controller.ts').RecycleItem[]
 }
 
 async function invokeRestore(_ctx: ClientContext, id: string): Promise<boolean> {
-  const res = await fetch('/api/dsh-echo-memory/restore', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
-  if (!res.ok) throw new Error(`restore failed HTTP ${res.status}`)
-  const value = await res.json() as unknown
+  const value = await fetchJson('/api/dsh-echo-memory/restore', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
   return Boolean((value as { readonly restored?: unknown }).restored)
 }
 
 async function invokePurgeOne(_ctx: ClientContext, id: string): Promise<boolean> {
-  const res = await fetch('/api/dsh-echo-memory/purge-one', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
-  if (!res.ok) throw new Error(`purge-one failed HTTP ${res.status}`)
-  const value = await res.json() as unknown
+  const value = await fetchJson('/api/dsh-echo-memory/purge-one', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
   return Boolean((value as { readonly purged?: unknown }).purged)
 }
 
 async function invokeUpdate(_ctx: ClientContext, id: string, patch: { content?: string }): Promise<boolean> {
-  const res = await fetch('/api/dsh-echo-memory/update', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id, ...patch }) })
-  if (!res.ok) throw new Error(`update failed HTTP ${res.status}`)
-  const value = await res.json() as unknown
+  const value = await fetchJson('/api/dsh-echo-memory/update', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id, ...patch }) })
   return Boolean((value as { readonly updated?: unknown }).updated)
 }
 

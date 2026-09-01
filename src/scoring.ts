@@ -84,56 +84,31 @@ export function tokenizeForRecall(query: string): string[] {
   const raw = trimmed.match(/[\u4e00-\u9fa5]+|[a-z0-9]+/gi) ?? []
   const seen = new Set<string>()
   const tokens: string[] = []
+  const add = (t: string): void => {
+    if (t.length < 2 || seen.has(t) || tokens.length >= 20) return
+    seen.add(t)
+    tokens.push(t)
+  }
   for (const tok of raw) {
     const t = tok.toLowerCase()
-    if (t.length === 0 || seen.has(t)) continue
-    if (t.length < 2) continue
-    // 中文长串：最大匹配切分（优先词表，剩余只保留原串，不全量 2-gram 以降噪）
-    if (/^[\u4e00-\u9fa5]+$/.test(t) && t.length > 4) {
-      const dict = new Set(Object.keys(LOCAL_SYNONYMS))
-      let pos = 0
-      let matched = 0
-      while (pos < t.length && tokens.length < 20) {
-        let found: string | undefined
-        // 尝试最长 4 → 2 的词表匹配
-        for (let len = Math.min(4, t.length - pos); len >= 2; len--) {
-          const cand = t.slice(pos, pos + len)
-          if (dict.has(cand)) { found = cand; break }
-        }
-        if (found !== undefined) {
-          if (!seen.has(found)) { seen.add(found); tokens.push(found); matched++ }
-          pos += found.length
-        } else {
-          pos += 1
-        }
-        // 防止死循环：若长串无任何词表命中，最多切 3 段后跳出，避免噪音
-        if (matched === 0 && pos >= 4) break
-      }
-      // 原长串保留（用于精确匹配“本机系统信息”这类标题）
-      if (!seen.has(t) && tokens.length < 20) {
-        seen.add(t)
-        tokens.push(t)
-      }
-      // 仅当词表完全未命中时，退化为取首个 2-gram 保底（而非全量展开）
-      if (matched === 0 && tokens.length < 20) {
-        const gram = t.slice(0, 2)
-        if (!seen.has(gram)) { seen.add(gram); tokens.push(gram) }
+    if (t.length < 2 || seen.has(t)) continue
+    if (/^[\u4e00-\u9fa5]+$/.test(t)) {
+      add(t)
+      // 中文 2-gram 滑窗：保证“本机和”→“本机”，“看看本机和”→“本机”
+      if (t.length > 2) {
+        for (let i = 0; i < t.length - 1; i++) add(t.slice(i, i + 2))
       }
     } else {
-      seen.add(t)
-      tokens.push(t)
+      add(t)
     }
     if (tokens.length >= 20) break
   }
-  // 额外扫描已知词表做子串命中（解决“发布怎么弄”整串不拆的同义词失配）
+  // 额外扫描已知词表做子串命中（解决“发布怎么弄”这类未被切出的同义词）
   for (const key of Object.keys(LOCAL_SYNONYMS)) {
     const lower = key.toLowerCase()
     if (seen.has(lower)) continue
-    if (trimmed.includes(lower)) {
-      seen.add(lower)
-      tokens.push(lower)
-      if (tokens.length >= 20) break
-    }
+    if (trimmed.includes(lower)) add(lower)
+    if (tokens.length >= 20) break
   }
   return tokens
 }

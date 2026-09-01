@@ -318,7 +318,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
         onClick={() => { setOpen(!open) }}
       >
         <span style={{ flex: 'none', width: '32px', height: '32px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-3)', border: '1px solid white', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 0, boxShadow: '0 1px 6px rgba(0,0,0,0.08)' }} aria-hidden>
-          <img src={elephantImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          <img src={elephantImage} alt="" draggable={false} onDragStart={(e) => e.preventDefault()} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', pointerEvents: 'none', userSelect: 'none' }} />
         </span>
         <span className="dshm-headText">
           <span className="dshm-name">{baseTitle}<span className="dshm-version">v{version}</span></span>

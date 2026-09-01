@@ -11,9 +11,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { MemoryStore } from './store.js'
 import { GLOBAL_WORKSPACE, agentWorkspace } from './domain.js'
 import type { MemoryInjectionConfig } from './prompt.js'
-import { hasDeepSeekKey } from './store.js'
-import { expandWithLocalSynonyms, tokenizeForRecall, filterRecallHits, scoreHybridBM25 } from './scoring.js'
-import { cosine, embed } from './embedding.js'
+import { filterRecallHits } from './scoring.js'
 
 /** 从 claimed messages 抽取用于检索的 query（所有 text 块拼接，保留原始大小写由 scorer 统一 lower）。 */
 export function extractQuery(messages: readonly UserMessage[]): string {
@@ -78,48 +76,16 @@ export function decideRecall(
   return { text: renderRecallBlock(recallText), hits: hits.length, rawHits: hits }
 }
 
+/**
+ * @deprecated 直接用 decideRecall，异步向量已下掉（保留兼容，同步包一层 Promise）。
+ */
 export async function decideRecallAsync(
   store: MemoryStore,
   read: () => MemoryInjectionConfig,
   agent: Agent,
   messages: readonly UserMessage[],
 ): Promise<{ text: string; hits: number; rawHits: import('./store.js').SearchHit[] } | undefined> {
-  const { enabled, limit, maxChars } = read()
-  if (!enabled) return undefined
-  const query = extractQuery(messages)
-  if (query.length === 0) {
-    store.recordAssembly(true, false)
-    return undefined
-  }
-  const workspace = agentWorkspace(agent) ?? GLOBAL_WORKSPACE
-  if (!hasDeepSeekKey()) return decideRecall(store, read, agent, messages)
-  try {
-    const queryVec = await embed(query)
-    const candidates = store.liveRecords(workspace)
-    if (candidates.length === 0) {
-      store.recordAssembly(true, false)
-      return undefined
-    }
-    const baseTokens = tokenizeForRecall(query)
-    const tokens = expandWithLocalSynonyms(baseTokens)
-    const now = Date.now()
-    const scored = scoreHybridBM25(candidates, tokens, queryVec, now, cosine)
-    const sliced = scored.slice(0, Math.max(1, Math.min(limit, 50)))
-    const hits = filterRecallHits(sliced) as import('./store.js').SearchHit[]
-    if (hits.length === 0) {
-      store.recordAssembly(true, false)
-      return undefined
-    }
-    const recallText = store.renderRecallText(hits as any, maxChars)
-    if (recallText.length === 0) {
-      store.recordAssembly(true, false)
-      return undefined
-    }
-    store.recordAssembly(true, true)
-    return { text: renderRecallBlock(recallText), hits: hits.length, rawHits: hits }
-  } catch {
-    return decideRecall(store, read, agent, messages)
-  }
+  return decideRecall(store, read, agent, messages)
 }
 
 /** 是否为本插件的 recall 注入消息（用于幂等或去重判断，预留）。 */

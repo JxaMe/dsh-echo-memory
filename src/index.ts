@@ -18,13 +18,11 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
-import { hasDeepSeekKey } from './store.js'
 import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
-import { createRecallMessage, decideRecallAsync, extractQuery } from './recall.js'
+import { createRecallMessage, decideRecall, extractQuery } from './recall.js'
 import { migrateMemoryFile } from './migrate.js'
-import { embed } from './embedding.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
   type DeletionMode, type MemorySettings,
@@ -89,6 +87,8 @@ export default class MemoryService extends Service {
   private readSettings: () => MemorySettings
   private store: MemoryStore | undefined
   private lastRecall: { at: number; query: string; hits: Array<{ id: string; kind: string; content: string; tags: readonly string[]; strength: number }> } | null = null
+  private recallHistory: Array<{ at: number; query: string; hits: Array<{ id: string; kind: string; content: string; tags: readonly string[]; strength: number }> }> = []
+  private static readonly MAX_RECALL_HISTORY = 20
 
   /**
    * @param ctx - 宿主上下文（storageDomain/systemPrompt/tools 就绪后才实例化）。
@@ -129,29 +129,14 @@ export default class MemoryService extends Service {
     this.registerRecall()
     this.registerCapture()
     console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget, memory_restore; recall: on-demand; recycle: on)')
-    if (hasDeepSeekKey()) {
-      void this.backfillEmbeddings().catch(err => console.warn('[dsh-echo-memory] backfill embeddings failed', err))
-    }
   }
 
   /**
-   * 保存一条记忆（与 memory_save 工具同一入口）。有 Key 时后台补向量，不阻塞确认。
+   * 保存一条记忆（与 memory_save 工具同一入口）。
    * @param input - 保存输入（见 MemoryStore.save）。
    */
   async save(input: SaveInput): Promise<SaveOutcome> {
-    const outcome = await this.requireStore().save(input)
-    if (hasDeepSeekKey()) {
-      const content = input.content.trim()
-      if (content.length > 0) {
-        void (async () => {
-          try {
-            const vec = await embed(content)
-            await this.requireStore().setEmbedding(outcome.id, vec)
-          } catch {}
-        })()
-      }
-    }
-    return outcome
+    return this.requireStore().save(input)
   }
 
   /**
@@ -170,9 +155,14 @@ export default class MemoryService extends Service {
     return this.requireStore().forget(id, this.readSettings().deletionMode)
   }
 
-  /** 恢复一条墓碑记忆 */
+  /** 恢复一条墓碑记忆（兼容别名 restoreDeleted） */
   restore(id: string): Promise<boolean> {
     return this.requireStore().restore(id)
+  }
+
+  /** @deprecated 用 restore */
+  restoreDeleted(id: string): Promise<boolean> {
+    return this.restore(id)
   }
 
   /**
@@ -186,11 +176,6 @@ export default class MemoryService extends Service {
   /** 列出墓碑（回收站） */
   listDeleted(limit: number = 20): readonly import('./domain.js').MemoryRecord[] {
     return this.requireStore().listDeleted(limit)
-  }
-
-  /** 恢复单条墓碑 */
-  restoreDeleted(id: string): Promise<boolean> {
-    return this.requireStore().restore(id)
   }
 
   /** 单条墓碑彻底删除 */
@@ -220,177 +205,83 @@ export default class MemoryService extends Service {
     return { injections: store.injectionStats, memories: store.liveCount() }
   }
 
-  /** 统计/墓碑清理的 HTTP 直连（供 card fetch） */
+  /** 统计/墓碑清理的 HTTP 直连（供 card/Dock fetch） */
   private registerPreviewRoute(ctx: Context): void {
     ctx.inject(['webServer'], (webCtx) => {
       const regs: Array<() => void> = []
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/stats',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify(this.memoryStats()))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/purge',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const purged = await this.purgeTombstones()
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ purged }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/deleted',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const url = new URL(_req.url ?? '/api/dsh-echo-memory/deleted', 'http://localhost')
-            const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
-            const items = this.listDeleted(limit)
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ items }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/restore',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const body = await readJsonBody(_req)
-            const id = typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : ''
-            if (!id) throw new Error('missing id')
-            const restored = await this.restoreDeleted(id)
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ restored }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/purge-one',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const body = await readJsonBody(_req)
-            const id = typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : ''
-            if (!id) throw new Error('missing id')
-            const purged = await this.purgeOne(id)
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ purged }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/update',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const body = await readJsonBody(_req) as { id?: unknown; content?: unknown; tags?: unknown }
-            const id = typeof body.id === 'string' ? body.id : ''
-            if (!id) throw new Error('missing id')
-            const content = typeof body.content === 'string' ? body.content : undefined
-            const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
-            const patch: { content?: string; tags?: readonly string[] } = {}
-            if (content !== undefined) patch.content = content
-            if (tags !== undefined) patch.tags = tags
-            const updated = await this.updateMemory(id, patch)
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ updated }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/last-recall',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify(this.lastRecall ?? { at: 0, query: '', hits: [] }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/list',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const url = new URL(_req.url ?? '/api/dsh-echo-memory/list', 'http://localhost')
-            const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
-            const q = url.searchParams.get('q') ?? ''
-            const items = q.trim().length > 0
-              ? this.searchRecent(q, limit).map(h => h.record)
-              : this.listRecent(limit)
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ items }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/save',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const body = await readJsonBody(_req) as { content?: unknown; tags?: unknown; kind?: unknown; workspace?: unknown }
-            const content = typeof body.content === 'string' ? body.content : ''
-            const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
-            const kind = typeof body.kind === 'string' ? body.kind as import('./domain.js').MemoryKind : undefined
-            const workspace = typeof body.workspace === 'string' ? body.workspace : this.config.defaultWorkspace
-            const outcome = await this.save({ content, tags, kind, workspace })
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify(outcome))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
-      regs.push(webCtx.webServer.register({
-        kind: 'exact',
-        path: '/api/dsh-echo-memory/forget',
-        handler: async (_req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
-          try {
-            const body = await readJsonBody(_req) as { id?: unknown }
-            const id = typeof body.id === 'string' ? body.id : ''
-            if (!id) throw new Error('missing id')
-            const ok = await this.forget(id)
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ ok }))
-          } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: String(error) }))
-          }
-        },
-      }))
+      const json = (res: import('node:http').ServerResponse, body: unknown, status = 200): void => {
+        res.writeHead(status, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(body))
+      }
+      const route = (path: string, handler: (req: import('node:http').IncomingMessage) => Promise<unknown>): void => {
+        regs.push(webCtx.webServer.register({
+          kind: 'exact',
+          path,
+          handler: async (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
+            try {
+              const body = await handler(req)
+              json(res, body)
+            } catch (error) {
+              json(res, { error: String(error) }, 500)
+            }
+          },
+        }))
+      }
+      route('/api/dsh-echo-memory/stats', async () => this.memoryStats())
+      route('/api/dsh-echo-memory/purge', async () => ({ purged: await this.purgeTombstones() }))
+      route('/api/dsh-echo-memory/deleted', async (req) => {
+        const url = new URL(req.url ?? '/api/dsh-echo-memory/deleted', 'http://localhost')
+        const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
+        return { items: this.listDeleted(limit) }
+      })
+      route('/api/dsh-echo-memory/restore', async (req) => {
+        const body = await readJsonBody(req) as { id?: unknown }
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (!id) throw new Error('missing id')
+        return { restored: await this.restore(id) }
+      })
+      route('/api/dsh-echo-memory/purge-one', async (req) => {
+        const body = await readJsonBody(req) as { id?: unknown }
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (!id) throw new Error('missing id')
+        return { purged: await this.purgeOne(id) }
+      })
+      route('/api/dsh-echo-memory/update', async (req) => {
+        const body = await readJsonBody(req) as { id?: unknown; content?: unknown; tags?: unknown }
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (!id) throw new Error('missing id')
+        const content = typeof body.content === 'string' ? body.content : undefined
+        const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
+        const patch: { content?: string; tags?: readonly string[] } = {}
+        if (content !== undefined) patch.content = content
+        if (tags !== undefined) patch.tags = tags
+        return { updated: await this.updateMemory(id, patch) }
+      })
+      route('/api/dsh-echo-memory/last-recall', async () => this.lastRecall ?? { at: 0, query: '', hits: [] })
+      route('/api/dsh-echo-memory/recall-history', async () => ({ items: [...this.recallHistory] }))
+      route('/api/dsh-echo-memory/list', async (req) => {
+        const url = new URL(req.url ?? '/api/dsh-echo-memory/list', 'http://localhost')
+        const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') ?? '20') || 20))
+        const q = url.searchParams.get('q') ?? ''
+        const items = q.trim().length > 0
+          ? this.searchRecent(q, limit).map(h => h.record)
+          : this.listRecent(limit)
+        return { items }
+      })
+      route('/api/dsh-echo-memory/save', async (req) => {
+        const body = await readJsonBody(req) as { content?: unknown; tags?: unknown; kind?: unknown; workspace?: unknown }
+        const content = typeof body.content === 'string' ? body.content : ''
+        const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
+        const kind = typeof body.kind === 'string' ? body.kind as import('./domain.js').MemoryKind : undefined
+        const workspace = typeof body.workspace === 'string' ? body.workspace : this.config.defaultWorkspace
+        return this.save({ content, tags, kind, workspace })
+      })
+      route('/api/dsh-echo-memory/forget', async (req) => {
+        const body = await readJsonBody(req) as { id?: unknown }
+        const id = typeof body.id === 'string' ? body.id : ''
+        if (!id) throw new Error('missing id')
+        return { ok: await this.forget(id) }
+      })
       return () => { for (const dispose of regs) dispose() }
     })
   }
@@ -429,19 +320,22 @@ export default class MemoryService extends Service {
       if (decision.kind === 'reject') return decision
       try {
         signal.throwIfAborted()
-        const recall = await decideRecallAsync(this.requireStore(), () => {
+        const recall = decideRecall(this.requireStore(), () => {
           const s = this.readSettings()
           return { enabled: s.injectEnabled, limit: s.injectLimit, maxChars: s.injectMaxChars }
         }, agent, messages)
         if (recall === undefined) return decision
-        // 记录最近一次召回，供全局 Dock 瞬态展示
+        // 记录最近一次召回，供全局 Dock 瞬态展示 + 历史
         try {
           const q = extractQuery(messages).slice(0, 200)
-          this.lastRecall = {
+          const entry = {
             at: Date.now(),
             query: q,
             hits: recall.rawHits.map(h => ({ id: h.record.id, kind: h.record.kind, content: h.record.content, tags: [...h.record.tags], strength: h.record.strength })),
           }
+          this.lastRecall = entry
+          this.recallHistory.unshift(entry)
+          if (this.recallHistory.length > MemoryService.MAX_RECALL_HISTORY) this.recallHistory.length = MemoryService.MAX_RECALL_HISTORY
         } catch {}
         const injection = createRecallMessage(recall.text, recall.hits)
         return { ...decision, messages: [...decision.messages, injection] }
@@ -466,23 +360,6 @@ export default class MemoryService extends Service {
     }, this.requireStore(), this.captureFeed))
   }
 
-  private async backfillEmbeddings(): Promise<void> {
-    const store = this.requireStore()
-    const pending = store.allLive().filter(r => r.embedding === undefined)
-    if (pending.length === 0) return
-    for (let i = 0; i < pending.length; i += 5) {
-      const batch = pending.slice(i, i + 5)
-      await Promise.all(batch.map(async rec => {
-        try {
-          const vec = await embed(rec.content)
-          await store.setEmbedding(rec.id, vec)
-        } catch {}
-      }))
-      if (i + 5 < pending.length) await new Promise(r => setTimeout(r, 200))
-    }
-    if (pending.length > 0) console.log(`[dsh-echo-memory] backfilled ${pending.length} embeddings`)
-  }
-
   private requireStore(): MemoryStore {
     const store = this.store
     if (store === undefined) {
@@ -493,8 +370,15 @@ export default class MemoryService extends Service {
 }
 
 async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
+  const MAX_BODY = 64 * 1024 // 64 KiB 足够记忆 payload，防大包撑内存
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let size = 0
+  for await (const chunk of req) {
+    const buf = chunk as Buffer
+    size += buf.length
+    if (size > MAX_BODY) throw new Error('request body too large')
+    chunks.push(buf)
+  }
   const raw = Buffer.concat(chunks).toString('utf8')
   if (!raw) return {}
   return JSON.parse(raw) as unknown

@@ -23,17 +23,16 @@ export interface MemoryInjectionConfig {
 }
 
 /**
- * 构造组装期文本提供方：解析当前 agent 会话 cwd 过滤工作区记忆（`*` 全局记忆始终入选），
- * 渲染 Top-N 条；若该会话刚发生「记住」句式自动捕获，前置一段一次性确认提示
- * （agent 转述「已记住」给用户，消费即清）。provider 必须全函数式，任何失败只告警一次并返回空串，绝不打断组装。
- * @param store - 已就绪的仓储。
- * @param read - 每次组装现读的注入配置（面板变更即时生效）。
+ * 构造组装期文本提供方：仅负责「记住」捕获后的确认转述（召回已迁至 pre-step）。
+ * 保留 _store/_read 参位仅为兼容，实际未用。
+ * @param _store - 兼容占位
+ * @param _read - 兼容占位
  * @param feed - 捕获确认缓冲（按当前会话消费）。
  */
 export function memoryContextText(
-  _store: unknown,
-  _read: () => MemoryInjectionConfig,
-  feed: CaptureFeed,
+  _store?: unknown,
+  _read?: () => MemoryInjectionConfig,
+  feed?: CaptureFeed,
 ): (context: AssembleContext) => string {
   let warnedOnce = false
   return (context) => {
@@ -55,7 +54,8 @@ export function memoryContextText(
 }
 
 /** 从缓冲取出当前会话的待确认条目（无会话上下文时返回空；取出即消费）。 */
-function takeCapturedFor(feed: CaptureFeed, context: AssembleContext): ReadonlyArray<{ readonly content: string }> {
+function takeCapturedFor(feed: CaptureFeed | undefined, context: AssembleContext): ReadonlyArray<{ readonly content: string }> {
+  if (feed === undefined) return []
   const sessionId = context.agent?.session?.header?.id
   if (sessionId === undefined) return []
   return feed.take(sessionId)

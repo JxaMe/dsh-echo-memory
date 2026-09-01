@@ -100,38 +100,45 @@ export function normalizeTags(tags: readonly string[] | undefined, max: number):
   return Object.freeze(result)
 }
 
-// 评分相关纯函数已收敛至 scoring.ts，此处重导出以保持对 tests/store.test 的兼容
-export {
+import {
+  BM25_B,
+  BM25_K1,
   FRESH_WINDOW_MS,
-  clampInt,
-  recencyFactor,
-  tieBreak,
-  keywordScore,
+  HYBRID_ALPHA,
   LOCAL_SYNONYMS,
-  tokenizeForRecall,
+  clampInt,
   expandWithLocalSynonyms,
   filterRecallHits,
-  BM25_K1,
-  BM25_B,
-  HYBRID_ALPHA,
-  scorePlainBM25,
-  scoreHybridBM25,
-} from './scoring.js'
-import {
-  clampInt,
-  recencyFactor,
-  tieBreak,
   keywordScore,
-  tokenizeForRecall,
-  expandWithLocalSynonyms,
+  recencyFactor,
+  scoreHybridBM25,
   scorePlainBM25,
-  FRESH_WINDOW_MS,
+  tieBreak,
+  tokenizeForRecall,
 } from './scoring.js'
+
+// 兼容旧测试：store 曾直接暴露评分函数，现转发自 scoring.ts
+export {
+  BM25_B,
+  BM25_K1,
+  FRESH_WINDOW_MS,
+  HYBRID_ALPHA,
+  LOCAL_SYNONYMS,
+  clampInt,
+  expandWithLocalSynonyms,
+  filterRecallHits,
+  keywordScore,
+  recencyFactor,
+  scoreHybridBM25,
+  scorePlainBM25,
+  tieBreak,
+  tokenizeForRecall,
+}
 
 let cachedHasKey: boolean | undefined
 let cachedHasKeyAt = 0
 const HAS_KEY_TTL_MS = 30_000
-/** 检测是否已配 DeepSeek Key（用于远端同义词/embedding，回退到本地 BM25）。带 30s TTL，支持中途配 key 后自动感知。 */
+/** 检测是否已配 DeepSeek Key（保留供外部检测，已不用于召回）。带 30s TTL。 */
 export function hasDeepSeekKey(): boolean {
   const now = Date.now()
   if (cachedHasKey !== undefined && now - cachedHasKeyAt < HAS_KEY_TTL_MS) return cachedHasKey
@@ -142,7 +149,8 @@ export function hasDeepSeekKey(): boolean {
   }
   try {
     const raw = readFileSync(join(homedir(), '.dsh', '.credentials.yaml'), 'utf8')
-    const m = raw.match(/DEEPSEEK_API_KEY:\s*([^\s#]+)/)
+    // 仅认行首的键，忽略 "# DEEPSEEK_API_KEY: ..." 注释行
+    const m = raw.match(/^\s*DEEPSEEK_API_KEY:\s*([^\s#]+)/m)
     const hit = m?.[1] !== undefined && m[1].trim().length > 0
     cachedHasKey = hit
     cachedHasKeyAt = now
@@ -262,26 +270,11 @@ export class MemoryStore {
     return { existed: false, id, strength: 1, workspace }
   }
 
-  /** 补写向量（后台异步，不阻塞保存确认）。用 update 原子合并，避免覆盖并发的 strength/updatedAt。 */
-  async setEmbedding(id: string, embedding: readonly number[], now: number = Date.now()): Promise<void> {
-    const frozen = Object.freeze([...embedding])
-    // 优先走原子 update（若表实现支持），否则回退 get+put
-    const tableAny = this.table as unknown as { update?: (key: string, fn: (v: MemoryRecord) => MemoryRecord) => Promise<unknown> }
-    if (typeof tableAny.update === 'function') {
-      try {
-        await tableAny.update(id, (rec: MemoryRecord) => {
-          if (rec.deletedAt !== undefined) return rec
-          return { ...rec, embedding: frozen, embeddingAt: now }
-        })
-        return
-      } catch {
-        // update 失败（如记录不存在）直接返回
-        return
-      }
-    }
-    const rec = this.table.get(id)
-    if (rec === undefined || rec.deletedAt !== undefined) return
-    await this.table.put(id, { ...rec, embedding: frozen, embeddingAt: now })
+  /**
+   * @deprecated 向量已下掉（保留兼容，调用无效果）
+   */
+  async setEmbedding(_id: string, _embedding: readonly number[], _now: number = Date.now()): Promise<void> {
+    return
   }
 
   /**
@@ -451,11 +444,8 @@ export class MemoryStore {
   }
 
   /**
-   * 按需召回：BM25 + 同义词膨胀 + 强度 + 新鲜度，工作区 = 当前会话 cwd 或全局 `*`。
-   * 与 rankedForInjection 不同：不过滤 90 天老化（相关就召回），但仍用新鲜度加权。
-   * 空 query 返回空（按需 = 无问不召回），避免广播噪音。query 按 token 分词后累加评分，
-   * 解决「systemd 怎么配」这类长句中只有部分词命中的召回问题。
-   * 同义词膨胀：本地表常驻（无 Key 也可用）；有 DEEPSEEK_API_KEY 时后续可叠加远端 embedding/LLM 膨胀，双保险。
+   * 按需召回：BM25 + 本地同义词膨胀 + 强度 + 新鲜度，工作区 = 当前会话 cwd 或全局 `*`。
+   * 不过滤 90 天老化（相关就召回），但仍用新鲜度加权。空 query 返回空避免广播噪音。
    * @param workspace - 当前会话 cwd；`*` 时只取全局记忆。
    * @param query - 当前用户问题的原文（大小写不敏感）。
    * @param limit - 候选上限。
