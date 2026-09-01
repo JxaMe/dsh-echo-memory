@@ -45,6 +45,18 @@ try {
   segment = seg
 } catch { segment = null }
 
+export type Tokenizer = (text: string) => string[]
+let overrideTokenizer: Tokenizer | null = null
+/** @internal 仅测试用：注入假分词器，传 null 恢复默认 */
+export function __setTokenizerForTest(fn: Tokenizer | null): void { overrideTokenizer = fn }
+function segmentTokenize(text: string): string[] {
+  if (overrideTokenizer) return overrideTokenizer(text)
+  if (segment) {
+    try { return segment.doSegment(text, { simple: true }) as unknown as string[] } catch { return [] }
+  }
+  return []
+}
+
 /** 停用词：命中不计分，避免“的/了/为什么”这种虚词拉分 */
 export const STOPWORDS: ReadonlySet<string> = new Set([
   '的', '了', '吗', '啊', '呢', '吧', '在', '是', '有', '和', '与', '又', '也', '就', '都', '还',
@@ -134,22 +146,16 @@ export function tokenizeForRecall(query: string): string[] {
     const t = tok.toLowerCase()
     if (t.length < 2 || seen.has(t)) continue
     if (/^[\u4e00-\u9fa5]+$/.test(t)) {
-      let segmented = false
-      if (segment) {
-        try {
-          const segs = segment.doSegment(t, { simple: true }) as unknown as string[]
-          for (const w of segs) {
-            const lw = String(w).toLowerCase().trim()
-            if (lw.length < 2 || seen.has(lw)) continue
-            if (/^[，。！？、；：:,\.\s\u3000]+$/.test(lw)) continue
-            add(lw)
-          }
-          // 长词本身也保留（便于精确命中）
-          if (t.length > 2 && t.length <= 12) add(t)
-          segmented = true
-        } catch {}
-      }
-      if (!segmented) {
+      const segs = segmentTokenize(t)
+      if (segs.length > 0) {
+        for (const w of segs) {
+          const lw = String(w).toLowerCase().trim()
+          if (lw.length < 2 || seen.has(lw)) continue
+          if (/^[，。！？、；：:,\.\s\u3000]+$/.test(lw)) continue
+          add(lw)
+        }
+        if (t.length > 2 && t.length <= 12) add(t)
+      } else {
         add(t)
         if (t.length > 2) {
           for (let i = 0; i < t.length - 1; i++) add(t.slice(i, i + 2))

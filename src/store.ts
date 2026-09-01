@@ -109,6 +109,7 @@ import {
   BM25F_W_BODY,
   BM25F_W_TAGS,
   BM25F_W_TITLE,
+  type Tokenizer,
   FRESH_WINDOW_MS,
   HYBRID_ALPHA,
   LOCAL_SYNONYMS,
@@ -126,6 +127,7 @@ import {
   scorePlainBM25,
   tieBreak,
   tokenizeForRecall,
+  __setTokenizerForTest,
 } from './scoring.js'
 
 // 兼容旧测试：store 曾直接暴露评分函数，现转发自 scoring.ts
@@ -138,6 +140,8 @@ export {
   BM25F_W_BODY,
   BM25F_W_TAGS,
   BM25F_W_TITLE,
+  type Tokenizer,
+  __setTokenizerForTest,
   FRESH_WINDOW_MS,
   HYBRID_ALPHA,
   LOCAL_SYNONYMS,
