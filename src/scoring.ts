@@ -19,6 +19,31 @@ export const HYBRID_ALPHA = 0.7
 export const BM25F_W_TITLE = 2.5
 export const BM25F_W_BODY = 1.0
 export const BM25F_W_TAGS = 3.0
+/** BM25F 字段长度归一化系数（标题短，归一轻；标签极短，不归一） */
+export const BM25F_B_TITLE = 0.3
+export const BM25F_B_BODY = 0.75
+export const BM25F_B_TAGS = 0
+
+// 中文分词：优先用 segment，失败回退 2-gram
+// @ts-ignore no types for segment
+import Segment from 'segment'
+let segment: InstanceType<typeof Segment> | null = null
+try {
+  const seg = new Segment()
+  seg.useDefault()
+  // 补自定义词（项目高频词，默认词库未收）
+  const customs = ['本机', '回音象', '原点', '召回', '召回历史', '拖选', '分层', '落盘', '部署', '前端', '后端', '存储', '重启', '上线', '发布', '系统', '信息']
+  for (const w of customs) {
+    const lower = w.toLowerCase()
+    seg.DICT.TABLE[lower] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+    seg.DICT.TABLE[w] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+    const len = w.length
+    if (!seg.DICT.TABLE2[len]) seg.DICT.TABLE2[len] = {}
+    seg.DICT.TABLE2[len][lower] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+    seg.DICT.TABLE2[len][w] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+  }
+  segment = seg
+} catch { segment = null }
 
 /** 停用词：命中不计分，避免“的/了/为什么”这种虚词拉分 */
 export const STOPWORDS: ReadonlySet<string> = new Set([
@@ -93,7 +118,7 @@ export const LOCAL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Objec
   '记住': ['记忆', 'memory'],
 })
 
-/** 按需召回的 query 分词：提“systemd 怎么配”中的有效 token，避免整句不命中。 */
+/** 按需召回的 query 分词：优先 jieba/segment，失败回退 2-gram */
 export function tokenizeForRecall(query: string): string[] {
   const trimmed = query.trim().toLowerCase()
   if (trimmed.length === 0) return []
@@ -109,10 +134,26 @@ export function tokenizeForRecall(query: string): string[] {
     const t = tok.toLowerCase()
     if (t.length < 2 || seen.has(t)) continue
     if (/^[\u4e00-\u9fa5]+$/.test(t)) {
-      add(t)
-      // 中文 2-gram 滑窗：保证“本机和”→“本机”，“看看本机和”→“本机”
-      if (t.length > 2) {
-        for (let i = 0; i < t.length - 1; i++) add(t.slice(i, i + 2))
+      let segmented = false
+      if (segment) {
+        try {
+          const segs = segment.doSegment(t, { simple: true }) as unknown as string[]
+          for (const w of segs) {
+            const lw = String(w).toLowerCase().trim()
+            if (lw.length < 2 || seen.has(lw)) continue
+            if (/^[，。！？、；：:,\.\s\u3000]+$/.test(lw)) continue
+            add(lw)
+          }
+          // 长词本身也保留（便于精确命中）
+          if (t.length > 2 && t.length <= 12) add(t)
+          segmented = true
+        } catch {}
+      }
+      if (!segmented) {
+        add(t)
+        if (t.length > 2) {
+          for (let i = 0; i < t.length - 1; i++) add(t.slice(i, i + 2))
+        }
       }
     } else {
       add(t)
@@ -339,9 +380,9 @@ function bm25FForRecord(
 
     if (tfTitle === 0 && tfBody === 0 && tfTags === 0) continue
 
-    const normTitle = tl === 0 ? 0 : tfTitle / (1 - BM25_B + BM25_B * (tl / Math.max(1, fieldLens.avgTitleLen)))
-    const normBody = bl === 0 ? 0 : tfBody / (1 - BM25_B + BM25_B * (bl / Math.max(1, fieldLens.avgBodyLen)))
-    const normTags = gl === 0 ? tfTags : tfTags / (1 - BM25_B + BM25_B * (gl / Math.max(1, fieldLens.avgTagsLen)))
+    const normTitle = tl === 0 ? 0 : tfTitle / (1 - BM25F_B_TITLE + BM25F_B_TITLE * (tl / Math.max(1, fieldLens.avgTitleLen)))
+    const normBody = bl === 0 ? 0 : tfBody / (1 - BM25F_B_BODY + BM25F_B_BODY * (bl / Math.max(1, fieldLens.avgBodyLen)))
+    const normTags = gl === 0 ? tfTags : tfTags / (1 - BM25F_B_TAGS + BM25F_B_TAGS * (gl / Math.max(1, fieldLens.avgTagsLen)))
 
     const tildeTf = BM25F_W_TITLE * normTitle + BM25F_W_BODY * normBody + BM25F_W_TAGS * normTags
     if (tildeTf === 0) continue

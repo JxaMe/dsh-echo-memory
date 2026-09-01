@@ -103,6 +103,9 @@ export function normalizeTags(tags: readonly string[] | undefined, max: number):
 import {
   BM25_B,
   BM25_K1,
+  BM25F_B_BODY,
+  BM25F_B_TAGS,
+  BM25F_B_TITLE,
   BM25F_W_BODY,
   BM25F_W_TAGS,
   BM25F_W_TITLE,
@@ -129,6 +132,9 @@ import {
 export {
   BM25_B,
   BM25_K1,
+  BM25F_B_BODY,
+  BM25F_B_TAGS,
+  BM25F_B_TITLE,
   BM25F_W_BODY,
   BM25F_W_TAGS,
   BM25F_W_TITLE,
