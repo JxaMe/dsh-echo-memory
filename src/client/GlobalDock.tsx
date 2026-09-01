@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { elephantImage } from './elephantImage.ts'
 import { loadDragPos, useDragAnchor as useDockDrag } from './drag-anchor.ts'
+import { fetchList as fetchMemoryList, forgetMemory, saveMemory, updateMemory } from './memory-repo.ts'
+import { useRecallFeed } from './recall-feed.ts'
 
 type RecallHit = { id: string; kind: string; content: string; tags: readonly string[]; strength: number }
 type LastRecall = { at: number; query: string; hits: RecallHit[] }
@@ -33,9 +35,6 @@ function formatTime(ts: number): string {
 }
 
 export function GlobalDock() {
-  const [hits, setHits] = useState<RecallHit[]>([])
-  const [showBig, setShowBig] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
   const [dotPos, setDotPos] = useState<{ x: number; y: number } | null>(null)
   const [showManage, setShowManage] = useState(false)
   const [query, setQuery] = useState('')
@@ -55,8 +54,6 @@ export function GlobalDock() {
   const [showSuggest, setShowSuggest] = useState(false)
   const [filterScope, setFilterScope] = useState<'all' | 'global' | 'project'>('all')
   const [saveWorkspace, setSaveWorkspace] = useState<string>('*')
-  const lastAtRef = useRef(0)
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const dropToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const openManage = useCallback(() => setShowManage(true), [])
@@ -65,24 +62,13 @@ export function GlobalDock() {
     const text = raw.trim()
     if (text.length < 2) return
     const clipped = text.length > 500 ? text.slice(0, 500) : text
-    try {
-      const res = await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: clipped, workspace: saveWorkspace }) })
-      if (!res.ok) throw new Error('save failed')
-      const preview = clipped.length > 20 ? clipped.slice(0, 20).trimEnd() + '…' : clipped
-      setDropToast(`已记住：${preview}`)
-      if (dropToastTimer.current) clearTimeout(dropToastTimer.current)
-      dropToastTimer.current = setTimeout(() => setDropToast(null), 2200)
-      if (showManage && activeTab === 'memory') {
-        try {
-          const r = await fetch(`/api/dsh-echo-memory/list?limit=20&q=${encodeURIComponent(manageQuery.trim())}`)
-          const data = (await r.json()) as { items: MemoryRecord[] }
-          setItems(Array.isArray(data.items) ? data.items : [])
-        } catch {}
-      }
-    } catch {
-      setDropToast('保存失败')
-      if (dropToastTimer.current) clearTimeout(dropToastTimer.current)
-      dropToastTimer.current = setTimeout(() => setDropToast(null), 2200)
+    const ok = await saveMemory(clipped, saveWorkspace)
+    const preview = clipped.length > 20 ? clipped.slice(0, 20).trimEnd() + '…' : clipped
+    setDropToast(ok ? `已记住：${preview}` : '保存失败')
+    if (dropToastTimer.current) clearTimeout(dropToastTimer.current)
+    dropToastTimer.current = setTimeout(() => setDropToast(null), 2200)
+    if (ok && showManage && activeTab === 'memory') {
+      try { setItems(await fetchMemoryList(manageQuery)) } catch {}
     }
   }, [showManage, activeTab, manageQuery, saveWorkspace])
 
@@ -119,37 +105,8 @@ export function GlobalDock() {
     if (pos) setDotPos(pos)
   }, [])
 
-  // 召回轮询
-  useEffect(() => {
-    let cancelled = false
-    const poll = async () => {
-      try {
-        const res = await fetch('/api/dsh-echo-memory/last-recall', { headers: { Accept: 'application/json' } })
-        if (!res.ok) return
-        const data = (await res.json()) as LastRecall
-        if (cancelled) return
-        if (!data || typeof data.at !== 'number' || !Array.isArray(data.hits) || data.hits.length === 0) return
-        if (data.at <= lastAtRef.current) return
-        lastAtRef.current = data.at
-        setHits(data.hits)
-        if (showManage) return
-        setCollapsed(false)
-        setShowBig(true)
-        if (hideTimer.current) clearTimeout(hideTimer.current)
-        hideTimer.current = setTimeout(() => {
-          setShowBig(false)
-          setCollapsed(true)
-        }, 6000)
-      } catch {}
-    }
-    void poll()
-    const id = setInterval(poll, 2500)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-      if (hideTimer.current) clearTimeout(hideTimer.current)
-    }
-  }, [showManage])
+  // 召回轮询已收进 useRecallFeed
+  const { hits, showBig, collapsed, setShowBig, setCollapsed } = useRecallFeed(showManage)
 
   // 管理面板数据 - 记忆列表
   useEffect(() => {
@@ -158,12 +115,9 @@ export function GlobalDock() {
     const fetchList = async () => {
       setLoading(true)
       try {
-        const url = `/api/dsh-echo-memory/list?limit=20&q=${encodeURIComponent(manageQuery.trim())}`
-        const res = await fetch(url, { headers: { Accept: 'application/json' } })
-        if (!res.ok) return
-        const data = (await res.json()) as { items: MemoryRecord[] }
+        const items = await fetchMemoryList(manageQuery)
         if (cancelled) return
-        setItems(Array.isArray(data.items) ? data.items : [])
+        setItems(items)
       } catch {} finally {
         if (!cancelled) setLoading(false)
       }
@@ -467,12 +421,9 @@ export function GlobalDock() {
                                 onClick={async () => {
                                   const c = draft.trim()
                                   if (!c) return
-                                  await fetch('/api/dsh-echo-memory/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: r.id, content: c }) })
+                                  await updateMemory(r.id, c)
                                   setEditingId(null)
-                                  const url = `/api/dsh-echo-memory/list?limit=20&q=${encodeURIComponent(manageQuery.trim())}`
-                                  const res = await fetch(url)
-                                  const data = (await res.json()) as { items: MemoryRecord[] }
-                                  setItems(Array.isArray(data.items) ? data.items : [])
+                                  setItems(await fetchMemoryList(manageQuery))
                                 }}
                                 style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'var(--dsw-alias-interactive-bg)', color: 'white', fontSize: '12px', cursor: 'pointer' }}
                               >
@@ -500,7 +451,7 @@ export function GlobalDock() {
                                 type="button"
                                 onClick={async () => {
                                   if (!confirm('删除这条记忆？')) return
-                                  await fetch('/api/dsh-echo-memory/forget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: r.id }) })
+                                  await forgetMemory(r.id)
                                   setItems((prev) => prev.filter((x) => x.id !== r.id))
                                 }}
                                 style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
@@ -545,11 +496,9 @@ export function GlobalDock() {
                     if (e.key !== 'Enter') return
                     const c = query.trim()
                     if (!c) return
-                    await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: c, workspace: saveWorkspace }) })
+                    await saveMemory(c, saveWorkspace)
                     setQuery('')
-                    const res = await fetch(`/api/dsh-echo-memory/list?limit=20&q=${encodeURIComponent(manageQuery.trim())}`)
-                    const data = (await res.json()) as { items: MemoryRecord[] }
-                    setItems(Array.isArray(data.items) ? data.items : [])
+                    setItems(await fetchMemoryList(manageQuery))
                   }}
                   placeholder="记住：回车保存…"
                   style={{
@@ -568,11 +517,9 @@ export function GlobalDock() {
                   onClick={async () => {
                     const c = query.trim()
                     if (!c) return
-                    await fetch('/api/dsh-echo-memory/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: c, workspace: saveWorkspace }) })
+                    await saveMemory(c, saveWorkspace)
                     setQuery('')
-                    const res = await fetch(`/api/dsh-echo-memory/list?limit=20&q=${encodeURIComponent(manageQuery.trim())}`)
-                    const data = (await res.json()) as { items: MemoryRecord[] }
-                    setItems(Array.isArray(data.items) ? data.items : [])
+                    setItems(await fetchMemoryList(manageQuery))
                   }}
                   style={{ padding: '8px 14px', borderRadius: '8px', border: 'none', background: 'var(--dsw-alias-interactive-bg)', color: 'white', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
@@ -760,7 +707,6 @@ export function GlobalDock() {
         onClick={() => {
           setShowBig(false)
           setCollapsed(true)
-          if (hideTimer.current) clearTimeout(hideTimer.current)
         }}
         style={{
           border: 'none',
