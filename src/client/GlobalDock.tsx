@@ -142,7 +142,7 @@ export function GlobalDock() {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid var(--dsw-alias-border-l2)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <img src={elephantImage} alt="" style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+            <img src={elephantImage} alt="" style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover', display: 'block', border: '1px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }} />
             <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--dsw-alias-label-primary)' }}>记忆</span>
             <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', background: 'var(--dsw-alias-bg-layer-3)', padding: '1px 6px', borderRadius: '999px' }}>{items.length}</span>
           </div>
@@ -385,13 +385,13 @@ export function GlobalDock() {
           width: '44px',
           height: '44px',
           borderRadius: '999px',
-          border: '1px solid var(--dsw-alias-border-l2)',
+          border: '2px solid white',
           background: 'var(--dsw-alias-bg-layer-2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'grab',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06)',
           fontSize: '16px',
           zIndex: 9999,
           touchAction: 'none',
@@ -452,13 +452,13 @@ export function GlobalDock() {
           width: '44px',
           height: '44px',
           borderRadius: '999px',
-          border: '1px solid var(--dsw-alias-border-l2)',
+          border: '2px solid white',
           background: 'var(--dsw-alias-bg-layer-2)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'grab',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06)',
           fontSize: '16px',
           zIndex: 9999,
           touchAction: 'none',
@@ -500,7 +500,7 @@ export function GlobalDock() {
         zIndex: 9999,
       }}
     >
-      <div style={{ paddingTop: '1px' }}><img src={elephantImage} alt="" style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover', display: 'block' }} /></div>
+      <div style={{ paddingTop: '1px' }}><img src={elephantImage} alt="" style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover', display: 'block', border: '1px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }} /></div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
           {titleText && (

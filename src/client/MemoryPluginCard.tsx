@@ -317,7 +317,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
         aria-label={`${t(open ? 'card.collapse' : 'card.expand')}：${baseTitle}`}
         onClick={() => { setOpen(!open) }}
       >
-        <span style={{ flex: 'none', width: '32px', height: '32px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-3)', border: '1px solid var(--dsw-alias-border-l2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 0 }} aria-hidden>
+        <span style={{ flex: 'none', width: '32px', height: '32px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-3)', border: '1px solid white', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: 0, boxShadow: '0 1px 6px rgba(0,0,0,0.08)' }} aria-hidden>
           <img src={elephantImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         </span>
         <span className="dshm-headText">
