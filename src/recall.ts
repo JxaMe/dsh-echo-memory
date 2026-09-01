@@ -32,7 +32,7 @@ export function extractQuery(messages: readonly UserMessage[]): string {
 
 /** 渲染 recall 区块的完整文本（含标题），hit 文本由 store.renderRecallText 提供。 */
 export function renderRecallBlock(recallText: string): string {
-  return `[记忆召回] 与当前话题相关的记忆（仅作参考，按需使用）：\n${recallText}`
+  return `相关记忆 · 按需使用：\n${recallText}`
 }
 
 declare module '@deepseek-ai/dsh-llm' {

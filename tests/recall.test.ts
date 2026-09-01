@@ -115,7 +115,7 @@ test('decideRecall：相关时注入并计 stats', async () => {
   assert.deepEqual(before, { requests: 0, withContent: 0 })
   const res = decideRecall(store, () => ({ enabled: true, limit: 8, maxChars: 1500 }), ag, [userMsg('systemd 怎么部署')])
   assert.ok(res)
-  assert.match(res!.text, /\[记忆召回\]/)
+  assert.match(res!.text, /相关记忆/)
   assert.match(res!.text, /部署走 systemd/)
   assert.equal(res!.hits, 1)
   assert.deepEqual(store.injectionStats, { requests: 1, withContent: 1 })
@@ -123,7 +123,7 @@ test('decideRecall：相关时注入并计 stats', async () => {
   const msg = createRecallMessage(res!.text, res!.hits)
   assert.equal(msg.role, 'user')
   const first = msg.content[0] as { type: string; text: string } | undefined
-  assert.match(first?.type === 'text' ? first.text : '', /记忆召回/)
+  assert.match(first?.type === 'text' ? first.text : '', /相关记忆/)
 })
 
 test('decideRecall：limit 与 maxChars 生效', async () => {
@@ -140,5 +140,5 @@ test('decideRecall：limit 与 maxChars 生效', async () => {
 })
 
 test('renderRecallBlock 格式', () => {
-  assert.equal(renderRecallBlock('- [fact] hi'), '[记忆召回] 与当前话题相关的记忆（仅作参考，按需使用）：\n- [fact] hi')
+  assert.equal(renderRecallBlock('- [fact] hi'), '相关记忆 · 按需使用：\n- [fact] hi')
 })

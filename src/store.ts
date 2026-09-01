@@ -454,7 +454,7 @@ export class MemoryStore {
   }
 
   /**
-   * 按需召回的文本渲染（与 recallText 同格式，但数据源是 query 相关命中）。
+   * 按需召回的文本渲染（卡片化 A 方案）。
    * 无命中返回空串（零贡献，pre-step 不注入）。
    */
   renderRecallText(hits: readonly SearchHit[], maxChars: number): string {
@@ -462,7 +462,7 @@ export class MemoryStore {
     const lines: string[] = []
     let used = 0
     for (const { record } of hits) {
-      const line = renderLine(record)
+      const line = renderCardLine(record)
       if (lines.length > 0 && used + line.length + 1 > cap) {
         lines.push(`${line.slice(0, Math.max(0, cap - used - 1))}…`)
         break
@@ -494,8 +494,33 @@ export function tagSuffix(tags: readonly string[]): string {
   return tags.length > 0 ? ` ${tags.map(tag => `#${tag}`).join(' ')}` : ''
 }
 
-/** 一行注入文本的渲染（纯函数）。 */
+/** 一行注入文本的渲染（纯函数，旧格式，保留兼容）。 */
 export function renderLine(record: MemoryRecord): string {
   const strength = record.strength > 1 ? ` (x${record.strength})` : ''
   return `- [${record.kind}] ${record.content}${tagSuffix(record.tags)}${strength}`
+}
+
+/** 卡片化单行：标题加粗 + 正文 60 字截断（A 方案）。 */
+export function renderCardLine(record: MemoryRecord): string {
+  const raw = record.content.trim()
+  let title = ''
+  let body = raw
+  const colon = raw.search(/[:：]/)
+  if (colon > 0 && colon < 24) {
+    title = raw.slice(0, colon).trim()
+    body = raw.slice(colon + 1).replace(/^[:：\s]+/, '').trim()
+  } else {
+    const comma = raw.search(/[，,]/)
+    if (comma > 0 && comma < 24) {
+      title = raw.slice(0, comma).trim()
+      body = raw.slice(comma + 1).trim()
+    }
+  }
+  // 正文精简：60 字 + 去多余空白
+  const short = body.length > 60 ? body.slice(0, 60).trimEnd() + '…' : body
+  const kind = `[${record.kind}]`
+  const tags = tagSuffix(record.tags)
+  const strength = record.strength > 1 ? ` (x${record.strength})` : ''
+  if (title) return `- **${title}** ${kind} ${short}${tags}${strength}`
+  return `- ${kind} ${short}${tags}${strength}`
 }
