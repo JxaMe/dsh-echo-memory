@@ -28,6 +28,7 @@ import {
   type DeletionMode, type MemorySettings,
 } from './settings.js'
 import { registerMemoryRoutes } from './host-routes.js'
+import { createSettingsReader } from './settings-reader.js'
 
 /** 插件配置：所有部署可调参数都经 cordis.yml 行配置提供，无硬编码 tunable。 */
 export interface Config {
@@ -84,8 +85,7 @@ export default class MemoryService extends Service {
   })
 
   private readonly config: Config
-  private readonly settingsEntry: MemorySettings
-  private readSettings: () => MemorySettings
+  private readonly settingsReader: ReturnType<typeof createSettingsReader>
   private store: MemoryStore | undefined
   private lastRecall: { at: number; query: string; hits: Array<{ id: string; kind: string; content: string; tags: readonly string[]; strength: number }> } | null = null
   private recallHistory: Array<{ at: number; query: string; hits: Array<{ id: string; kind: string; content: string; tags: readonly string[]; strength: number }> }> = []
@@ -98,17 +98,9 @@ export default class MemoryService extends Service {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'memory')
     this.config = config
-    this.settingsEntry = projectSettings(config)
-    this.readSettings = () => this.settingsEntry
-    // 设置分节：schema 默认 < 组合层 base（本行 cordis.yml 配置）< 用户分节。
-    // 消费方（注入提供方、捕获监听器、删除执行）每次现读解析值，因此更改即时生效。
-    // alpha.2 起使用 ctx.settings.installSection(owner, ns, schema, entry, hooks)
-    ctx.inject(['settings'], (settingsCtx) => {
-      settingsCtx.settings.installSection(ctx, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA, this.settingsEntry, {
-        setSource: (current: () => MemorySettings) => { this.readSettings = current },
-        onChange: () => {},
-      })
-    })
+    // 设置读取器：schema 默认 < 组合层 base < 用户分节的三层合并只在此一处
+    this.settingsReader = createSettingsReader(projectSettings(config))
+    this.settingsReader.install(ctx, this.settingsReader.get())
     this.registerPreviewRoute(ctx)
   }
 
@@ -153,7 +145,7 @@ export default class MemoryService extends Service {
    * @param id - 记录 id。
    */
   forget(id: string): Promise<boolean> {
-    return this.requireStore().forget(id, this.readSettings().deletionMode)
+    return this.requireStore().forget(id, this.settingsReader.get().deletionMode)
   }
 
   /** 恢复一条墓碑记忆（兼容别名 restoreDeleted） */
@@ -210,7 +202,7 @@ export default class MemoryService extends Service {
   private registerPreviewRoute(ctx: Context): void {
     registerMemoryRoutes(ctx, {
       store: this.requireStore(),
-      readSettings: this.readSettings,
+      readSettings: () => this.settingsReader.get(),
       getLastRecall: () => this.lastRecall ?? { at: 0, query: '', hits: [] },
       getRecallHistory: () => [...this.recallHistory],
       memoryStats: () => this.memoryStats(),
@@ -231,7 +223,7 @@ export default class MemoryService extends Service {
     for (const tool of memoryTools(
       this.requireStore(),
       this.config.defaultWorkspace,
-      () => this.readSettings().deletionMode,
+      () => this.settingsReader.get().deletionMode,
     )) {
       this.ctx.tools.register(tool)
     }
@@ -244,7 +236,7 @@ export default class MemoryService extends Service {
       name: 'memory',
       order: this.config.injectOrder,
       text: memoryContextText(this.requireStore(), () => {
-        const settings = this.readSettings()
+        const settings = this.settingsReader.get()
         return {
           enabled: settings.injectEnabled,
           limit: settings.injectLimit,
@@ -262,7 +254,7 @@ export default class MemoryService extends Service {
       try {
         signal.throwIfAborted()
         const recall = decideRecall(this.requireStore(), () => {
-          const s = this.readSettings()
+          const s = this.settingsReader.get()
           return { enabled: s.injectEnabled, limit: s.injectLimit, maxChars: s.injectMaxChars }
         }, agent, messages)
         if (recall === undefined) return decision
@@ -292,7 +284,7 @@ export default class MemoryService extends Service {
 
   private registerCapture(): void {
     this.ctx.on('session/event', createCaptureHandler(() => {
-      const settings = this.readSettings()
+      const settings = this.settingsReader.get()
       return {
         enabled: settings.captureEnabled,
         patterns: settings.capturePatterns,
