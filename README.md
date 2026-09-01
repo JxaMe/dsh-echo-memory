@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/client/assets/elephant.webp" width="96" alt="dsh-echo-memory logo - 步步象" />
+  <img src="src/client/assets/elephant.webp" width="96" alt="dsh-echo-memory logo - Echo 回音象" />
 </p>
 
 # dsh-echo-memory
