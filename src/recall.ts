@@ -99,18 +99,6 @@ export function decideRecall(
   return { text: renderRecallBlock(recallText), hits: hits.length, rawHits: hits }
 }
 
-/**
- * @deprecated 直接用 decideRecall，异步向量已下掉（保留兼容，同步包一层 Promise）。
- */
-export async function decideRecallAsync(
-  store: MemoryStore,
-  read: () => MemoryInjectionConfig,
-  agent: Agent,
-  messages: readonly UserMessage[],
-): Promise<{ text: string; hits: number; rawHits: readonly import('./store.js').SearchHit[] } | undefined> {
-  return decideRecall(store, read, agent, messages)
-}
-
 /** 是否为本插件的 recall 注入消息（用于幂等或去重判断，预留）。 */
 export function isRecallMessage(msg: UserMessage): boolean {
   return (msg.source as { kind?: string }).kind === 'dsh-echo-memory:recall'

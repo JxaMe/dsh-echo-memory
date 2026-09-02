@@ -329,7 +329,7 @@ export { MemoryStore } from './store.js'
 export type { SaveInput, SaveOutcome, SearchHit, SearchOptions, StoreLimits } from './store.js'
 export type { SearchOutputItem } from './tools.js'
 export {
-  DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_NS_VALUE, MEMORY_SETTINGS_SCHEMA,
+  DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
   type DeletionMode, type MemorySettings,
 } from './settings.js'
 

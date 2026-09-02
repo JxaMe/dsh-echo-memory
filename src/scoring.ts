@@ -49,12 +49,7 @@ try {
   segment = seg
 } catch { segment = null }
 
-export type Tokenizer = (text: string) => string[]
-let overrideTokenizer: Tokenizer | null = null
-/** @internal 仅测试用：注入假分词器，传 null 恢复默认 */
-export function __setTokenizerForTest(fn: Tokenizer | null): void { overrideTokenizer = fn }
 function segmentTokenize(text: string): string[] {
-  if (overrideTokenizer) return overrideTokenizer(text)
   if (segment) {
     try { return segment.doSegment(text, { simple: true }) as unknown as string[] } catch { return [] }
   }

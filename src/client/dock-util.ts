@@ -19,13 +19,14 @@ export function splitTitle(content: string): { title: string; body: string } {
   return { title: '', body: raw }
 }
 
-/** 相对时间文案（刚刚 / N分钟前 / N小时前 / N天前）。 */
+/** 相对时间文案（刚刚 / N分钟前 / N小时前 / N天前 / 超过 30 天显示日期）。 */
 export function formatTime(ts: number): string {
   const d = Date.now() - ts
   if (d < 60_000) return '刚刚'
   if (d < 3_600_000) return `${Math.floor(d / 60_000)}分钟前`
   if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}小时前`
-  return `${Math.floor(d / 86_400_000)}天前`
+  if (d < 30 * 86_400_000) return `${Math.floor(d / 86_400_000)}天前`
+  return new Date(ts).toLocaleDateString()
 }
 
 /** 复制文本到剪贴板（navigator.clipboard，回退 execCommand）。 */

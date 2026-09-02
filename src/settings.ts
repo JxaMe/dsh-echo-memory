@@ -9,10 +9,7 @@
 import s from '@deepseek-ai/schemastery'
 
 /** 设置命名空间的值（Host 注册键与浏览器卡片 `key` 必须拼写一致）。 */
-export const MEMORY_SETTINGS_NS_VALUE = 'memory'
-
-/** 设置命名空间（alpha.2 起直接使用字符串字面量，无需 settingsNamespace 品牌化）。 */
-export const MEMORY_SETTINGS_NS = MEMORY_SETTINGS_NS_VALUE
+export const MEMORY_SETTINGS_NS = 'memory'
 
 /** 删除模式封闭词表：`tombstone` 墓碑机制（标记删除，可彻底清除）/ `purge` 彻底删除（立即物理删除）。 */
 export const DELETION_MODES = ['tombstone', 'purge'] as const

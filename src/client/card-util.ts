@@ -31,13 +31,3 @@ export function parseNumberField(text: string): FieldWrite | undefined {
 export function booleanDraft(value: unknown): boolean {
   return value === true
 }
-
-/** 相对时间：刚刚/5分钟前/2小时前/3天前/2026-09-01 */
-export function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return '刚刚'
-  if (diff < 3600_000) return `${Math.floor(diff / 60000)}分钟前`
-  if (diff < 86400_000) return `${Math.floor(diff / 3600000)}小时前`
-  if (diff < 30 * 86400_000) return `${Math.floor(diff / 86400000)}天前`
-  return new Date(ts).toLocaleDateString()
-}

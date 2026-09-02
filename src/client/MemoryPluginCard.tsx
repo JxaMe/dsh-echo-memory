@@ -18,8 +18,7 @@ import type { MemoryCardTextField } from './card-controller.ts'
 import type { DeletionMode } from '../settings.ts'
 import type { MemoryKey } from './locales.ts'
 import { MemoryDockPreview, ensureDockStyles } from './MemoryDock.tsx'
-import { formatRelativeTime } from './card-util.ts'
-import { copyText } from './dock-util.ts'
+import { copyText, formatTime } from './dock-util.ts'
 import { elephantImage } from './elephantImage.ts'
 import { MemoryBooleanField, MemoryChoiceField, MemoryTextField } from './card-fields.tsx'
 import { ensureCardStyles } from './card-styles.ts'
@@ -272,7 +271,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                                         ) : (
                                           <div>{item.content}</div>
                                         )}
-                                        <div className="dshm-recycleMeta" title={new Date(item.deletedAt).toLocaleString()}>{item.kind} · {item.workspace}{item.tags.length > 0 ? ` · #${item.tags.join(' #')}` : ''} · {formatRelativeTime(item.deletedAt)}</div>
+                                        <div className="dshm-recycleMeta" title={new Date(item.deletedAt).toLocaleString()}>{item.kind} · {item.workspace}{item.tags.length > 0 ? ` · #${item.tags.join(' #')}` : ''} · {formatTime(item.deletedAt)}</div>
                                       </div>
                                       <div className="dshm-recycleActions">
                                         {editingId === item.id ? (
