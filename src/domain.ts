@@ -13,7 +13,7 @@ export const MEMORY_KINDS = ['fact', 'preference', 'project', 'session'] as cons
 /** 一条记忆的类型。 */
 export type MemoryKind = (typeof MEMORY_KINDS)[number]
 
-/** 记忆来源封闭词表（当前生产者：memory_save 写 agent、自动捕获写 auto）。 */
+/** 记忆来源封闭词表（当前新写入均经 agent；auto 为旧版自动捕获遗留兼容）。 */
 export const MEMORY_SOURCES = ['agent', 'auto'] as const
 
 /** 一条记忆的写入来源。 */

@@ -186,39 +186,6 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                 </div>
               )
             })() : null}
-            <MemoryBooleanField
-              t={t}
-              id="dsh-echo-memory-capture-enabled"
-              label={t('field.captureEnabled')}
-              hint={t('field.captureEnabled.hint')}
-              checked={state.captureEnabled.checked}
-              overridden={state.captureEnabled.overridden}
-              disabled={!writable}
-              onToggle={(checked) => { props.toggle('captureEnabled', checked) }}
-              onReset={() => { props.resetField('captureEnabled') }}
-            />
-            <MemoryTextField
-              t={t}
-              id="dsh-echo-memory-capture-patterns"
-              label={t('field.capturePatterns')}
-              hint={t('field.capturePatterns.hint')}
-              state={state.capturePatterns}
-              field="capturePatterns"
-              textarea
-              onEdit={(text) => { props.edit('capturePatterns', text) }}
-              onReset={props.resetField}
-            />
-            <MemoryTextField
-              t={t}
-              id="dsh-echo-memory-capture-max"
-              label={t('field.captureMaxPerSession')}
-              hint={t('field.captureMaxPerSession.hint')}
-              state={state.captureMaxPerSession}
-              field="captureMaxPerSession"
-              numeric
-              onEdit={(text) => { props.edit('captureMaxPerSession', text) }}
-              onReset={props.resetField}
-            />
             <MemoryChoiceField
               t={t}
               id="dsh-echo-memory-deletion-mode"
@@ -284,7 +251,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                                 <div style={{ marginTop: '8px' }}>
                                   <p className="dshm-hint">试试说：</p>
                                   <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap', marginTop: '4px' }}>
-                                    {['记住：这个项目用 pnpm', '记住：VPS 在 192.168.1.10', '记住：偏好简洁回复'].map(ex => (
+                                    {['帮我记住这个项目用 pnpm', '帮我记住 VPS 在 192.168.1.10', '帮我记住偏好简洁回复'].map(ex => (
                                       <button key={ex} type="button" className="dshm-badge" style={{ cursor: 'pointer', border: 'none' }} onClick={() => { void copyText(ex) }}>{ex}</button>
                                     ))}
                                   </div>

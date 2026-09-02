@@ -2,9 +2,8 @@
  * dsh-echo-memory：DSH 专用跨会话记忆插件。
  * 单行挂载（bundle patch `insert` 的 host 平面行），实例化后：
  *  1. 打开 `memory` 存储领域（storage-domain json 后端，落盘 `$DSH_HOME/storages/memory.json`）；
- *  2. 向 tools 部署全局层注册 memory_save / memory_search / memory_forget；
- *  3. 注册 systemPrompt 动态上下文（组装期注入 Top-N 记忆，按会话 cwd 过滤）；
- *  4. 监听 session/event 捕获用户「记住」句式（可配置、按会话限流）。
+ *  2. 向 tools 部署全局层注册 memory_save / memory_search / memory_forget / memory_restore / memory_suggest；
+ *  3. 注册 systemPrompt 动态上下文（记忆提议提示词，AI 判断是否 memory_suggest）。
  * 同时以 `ctx.memory`（Service）向其他 DSH 插件暴露 save/search/forget。
  * @module dsh-echo-memory
  */
@@ -19,13 +18,12 @@ import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
 import { memoryTools } from './tools.js'
-import { CaptureFeed, createCaptureHandler } from './capture.js'
-import { memoryContextText, suggestionPromptText } from './prompt.js'
+import { suggestionPromptText } from './prompt.js'
 import { createRecallMessage, decideRecall, extractQuery, isRecallMessage } from './recall.js'
 import { SuggestionStore } from './suggestion-store.js'
 import { ensureMemoryFileUsable, quarantineMemoryFile } from './migrate.js'
 import {
-  DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
+  DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
   type DeletionMode, type MemorySettings,
 } from './settings.js'
 import { registerMemoryRoutes } from './host-routes.js'
@@ -42,12 +40,6 @@ export interface Config {
   readonly injectMaxChars: number
   /** PromptContext 排序序号（同序按注册顺序连接）。 */
   readonly injectOrder: number
-  /** 是否自动捕获用户「记住」句式。 */
-  readonly captureEnabled: boolean
-  /** 触发自动捕获的句式（大小写不敏感子串）。 */
-  readonly capturePatterns: string[]
-  /** 每个运行期会话的自动捕获条数上限。 */
-  readonly captureMaxPerSession: number
   /** 单条记忆正文 UTF-16 长度上限。 */
   readonly contentMaxChars: number
   /** 单条记忆标签上限。 */
@@ -67,7 +59,7 @@ declare module '@deepseek-ai/cordis' {
 
 
 
-/** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 捕获的四合一装配。 */
+/** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 召回 + 建议的装配。 */
 export default class MemoryService extends Service {
   static inject = ['storageDomain', 'systemPrompt', 'tools']
 
@@ -77,9 +69,6 @@ export default class MemoryService extends Service {
     injectLimit: s.number().step(1).min(1).max(50).default(8),
     injectMaxChars: s.number().step(1).min(100).max(20000).default(1500),
     injectOrder: s.number().step(1).default(10),
-    captureEnabled: s.boolean().default(true),
-    capturePatterns: s.array(s.string()).default([...DEFAULT_CAPTURE_PATTERNS]),
-    captureMaxPerSession: s.number().step(1).min(1).max(1000).default(20),
     contentMaxChars: s.number().step(1).min(20).max(2000).default(500),
     tagsMax: s.number().step(1).min(0).max(32).default(8),
     defaultWorkspace: s.string().default(GLOBAL_WORKSPACE),
@@ -132,8 +121,7 @@ export default class MemoryService extends Service {
     this.registerTools()
     this.registerPrompt()
     this.registerRecall()
-    this.registerCapture()
-    console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget, memory_restore; recall: on-demand; recycle: on)')
+    console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget, memory_restore, memory_suggest; recall: on-demand; suggestions: on; recycle: on)')
   }
 
   /** 最近一次存储恢复事件（损坏自动隔离）；null 表示本次启动存储正常。 */
@@ -275,14 +263,7 @@ export default class MemoryService extends Service {
     }
   }
 
-  private readonly captureFeed = new CaptureFeed()
-
   private registerPrompt(): void {
-    this.ctx.systemPrompt.context({
-      name: 'memory',
-      order: this.config.injectOrder,
-      text: memoryContextText(this.captureFeed),
-    })
     this.ctx.systemPrompt.context({
       name: 'memory-suggest',
       order: this.config.injectOrder + 1,
@@ -326,16 +307,6 @@ export default class MemoryService extends Service {
     })
   }
 
-  private registerCapture(): void {
-    this.ctx.on('session/event', createCaptureHandler(() => {
-      const settings = this.settingsReader.get()
-      return {
-        enabled: settings.captureEnabled,
-        patterns: settings.capturePatterns,
-        maxPerSession: settings.captureMaxPerSession,
-      }
-    }, this.requireStore(), this.captureFeed))
-  }
 
   private requireStore(): MemoryStore {
     const store = this.store
@@ -368,9 +339,6 @@ function projectSettings(config: Config): MemorySettings {
     injectEnabled: config.injectEnabled,
     injectLimit: config.injectLimit,
     injectMaxChars: config.injectMaxChars,
-    captureEnabled: config.captureEnabled,
-    capturePatterns: [...config.capturePatterns],
-    captureMaxPerSession: config.captureMaxPerSession,
     deletionMode: config.deletionMode,
   }
 }

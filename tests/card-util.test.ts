@@ -8,8 +8,6 @@ import {
   booleanDraft,
   numberDraft,
   parseNumberField,
-  parsePatternsField,
-  patternsDraft,
 } from '../src/client/card-util.js'
 
 test('numberDraft：数字渲染为文本，非数字渲染为空', () => {
@@ -24,17 +22,6 @@ test('parseNumberField：空=清除，有限数字=写入，其余=非法', () =
   assert.deepEqual(parseNumberField('  12 '), { kind: 'set', value: 12 })
   assert.equal(parseNumberField('abc'), undefined)
   assert.equal(parseNumberField('1e999'), undefined)
-})
-
-test('patternsDraft / parsePatternsField：数组 ↔ 每行一条文本', () => {
-  assert.equal(patternsDraft(['请记住', 'remember that']), '请记住\nremember that')
-  assert.equal(patternsDraft(undefined), '')
-  assert.equal(patternsDraft(['a', 3]), 'a')
-  assert.deepEqual(parsePatternsField(' 请记住 \n\nremember that'), {
-    kind: 'set',
-    value: ['请记住', 'remember that'],
-  })
-  assert.deepEqual(parsePatternsField('  \n\n'), { kind: 'clear' })
 })
 
 test('booleanDraft：仅 true 投影为选中', () => {

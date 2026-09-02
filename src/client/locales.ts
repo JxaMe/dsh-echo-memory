@@ -3,7 +3,7 @@
 /** 简体中文词典（键集的事实标准）。 */
 export const zh = {
   'card.title': '记忆（dsh-echo-memory）',
-  'card.description': '跨会话持久记忆：提示词注入与自动捕获的行为设置，保存后即时生效。',
+  'card.description': '跨会话持久记忆：提示词注入与 AI 建议记住的行为设置，保存后即时生效。',
   'card.expand': '展开设置',
   'card.collapse': '收起设置',
   'card.unsaved': '未保存',
@@ -13,12 +13,6 @@ export const zh = {
   'field.injectLimit.hint': '单次注入记忆条目数（1–50）',
   'field.injectMaxChars': '注入文本长度上限',
   'field.injectMaxChars.hint': '注入文本 UTF-16 长度上限（100–20000）',
-  'field.captureEnabled': '自动捕获「记住」句式',
-  'field.captureEnabled.hint': '从用户消息中识别「记住 / 请记住 / remember that」等句式并自动落库',
-  'field.capturePatterns': '捕获句式',
-  'field.capturePatterns.hint': '每行一条触发句式（大小写不敏感的子串匹配）',
-  'field.captureMaxPerSession': '每会话捕获条数上限',
-  'field.captureMaxPerSession.hint': '单个运行期会话自动捕获的记忆条数上限（1–1000）',
   'field.deletionMode': '删除模式',
   'field.deletionMode.hint': 'memory_forget 删除记忆的方式：墓碑机制 = 标记删除（可从下方按钮彻底清除）；彻底删除 = 立即物理删除',
   'option.deletionMode.tombstone': '墓碑机制（标记删除）',
@@ -64,7 +58,7 @@ export type MemoryKey = keyof typeof zh
 /** 英文词典（与中文键集完整对应）。 */
 export const en = {
   'card.title': 'Memory (dsh-echo-memory)',
-  'card.description': 'Cross-session persistent memory: prompt injection and auto-capture behavior. Changes apply immediately after saving.',
+  'card.description': 'Cross-session persistent memory: prompt injection and AI-suggested saving behavior. Changes apply immediately after saving.',
   'card.expand': 'Show settings',
   'card.collapse': 'Hide settings',
   'card.unsaved': 'Unsaved',
@@ -74,12 +68,6 @@ export const en = {
   'field.injectLimit.hint': 'Memories injected per request (1–50)',
   'field.injectMaxChars': 'Injection text limit',
   'field.injectMaxChars.hint': 'UTF-16 length cap of the injected text (100–20000)',
-  'field.captureEnabled': 'Auto-capture "remember" phrases',
-  'field.captureEnabled.hint': 'Detect phrases like "remember / please remember / remember that" in user messages and store them',
-  'field.capturePatterns': 'Capture phrases',
-  'field.capturePatterns.hint': 'One trigger phrase per line (case-insensitive substring match)',
-  'field.captureMaxPerSession': 'Per-session capture limit',
-  'field.captureMaxPerSession.hint': 'Auto-captured memories per running session (1–1000)',
   'field.deletionMode': 'Deletion mode',
   'field.deletionMode.hint': 'How memory_forget deletes: tombstone = mark as deleted (purge via the button below); purge = immediate physical deletion',
   'option.deletionMode.tombstone': 'Tombstone (mark as deleted)',

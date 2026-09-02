@@ -14,11 +14,6 @@ export const MEMORY_SETTINGS_NS_VALUE = 'memory'
 /** 设置命名空间（alpha.2 起直接使用字符串字面量，无需 settingsNamespace 品牌化）。 */
 export const MEMORY_SETTINGS_NS = MEMORY_SETTINGS_NS_VALUE
 
-/** 触发自动捕获的默认句式（与插件 Config 的 capturePatterns 缺省共享）。 */
-export const DEFAULT_CAPTURE_PATTERNS: readonly string[] = Object.freeze([
-  '请记住', '记住：', '记住:', 'remember that', 'please remember', 'remember:',
-])
-
 /** 删除模式封闭词表：`tombstone` 墓碑机制（标记删除，可彻底清除）/ `purge` 彻底删除（立即物理删除）。 */
 export const DELETION_MODES = ['tombstone', 'purge'] as const
 
@@ -33,12 +28,6 @@ export interface MemorySettings {
   readonly injectLimit: number
   /** 注入文本 UTF-16 长度上限。 */
   readonly injectMaxChars: number
-  /** 是否自动捕获用户「记住」句式。 */
-  readonly captureEnabled: boolean
-  /** 触发自动捕获的句式（大小写不敏感子串）。 */
-  readonly capturePatterns: string[]
-  /** 每个运行期会话的自动捕获条数上限。 */
-  readonly captureMaxPerSession: number
   /** 删除记忆的行为模式（默认墓碑机制）。 */
   readonly deletionMode: DeletionMode
 }
@@ -48,8 +37,5 @@ export const MEMORY_SETTINGS_SCHEMA: s<MemorySettings> = s.object({
   injectEnabled: s.boolean().default(true),
   injectLimit: s.number().step(1).min(1).max(50).default(8),
   injectMaxChars: s.number().step(1).min(100).max(20000).default(1500),
-  captureEnabled: s.boolean().default(true),
-  capturePatterns: s.array(s.string()).default([...DEFAULT_CAPTURE_PATTERNS]),
-  captureMaxPerSession: s.number().step(1).min(1).max(1000).default(20),
   deletionMode: s.union(DELETION_MODES).default('tombstone'),
 })

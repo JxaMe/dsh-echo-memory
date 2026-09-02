@@ -18,16 +18,13 @@ export type MemoryCardField =
   | 'injectEnabled'
   | 'injectLimit'
   | 'injectMaxChars'
-  | 'captureEnabled'
-  | 'capturePatterns'
-  | 'captureMaxPerSession'
   | 'deletionMode'
 
-/** 文本类字段（数字与句式，走草稿文本）。 */
-export type MemoryCardTextField = Exclude<MemoryCardField, 'injectEnabled' | 'captureEnabled' | 'deletionMode'>
+/** 文本类字段（数字与上限，走草稿文本）。 */
+export type MemoryCardTextField = Exclude<MemoryCardField, 'injectEnabled' | 'deletionMode'>
 
 /** 布尔类字段（复选框，草稿即布尔值）。 */
-export type MemoryCardBooleanField = 'injectEnabled' | 'captureEnabled'
+export type MemoryCardBooleanField = 'injectEnabled'
 
 /** 选项类字段（选择控件，草稿即选项值）。 */
 export type MemoryCardChoiceField = 'deletionMode'
@@ -121,9 +118,6 @@ export interface MemoryCardState {
   injectEnabled: MemoryCardBooleanState
   injectLimit: MemoryCardFieldState
   injectMaxChars: MemoryCardFieldState
-  captureEnabled: MemoryCardBooleanState
-  capturePatterns: MemoryCardFieldState
-  captureMaxPerSession: MemoryCardFieldState
   deletionMode: MemoryCardChoiceState
   /** 「彻底删除」动作反馈（按钮点击后更新）。 */
   purge: MemoryPurgeState
@@ -179,9 +173,6 @@ function initial(): MemoryCardState {
     injectEnabled: { checked: false, overridden: false },
     injectLimit: { text: '', overridden: false, invalid: false },
     injectMaxChars: { text: '', overridden: false, invalid: false },
-    captureEnabled: { checked: false, overridden: false },
-    capturePatterns: { text: '', overridden: false, invalid: false },
-    captureMaxPerSession: { text: '', overridden: false, invalid: false },
     deletionMode: { value: 'tombstone', overridden: false },
     purge: { phase: 'idle' },
     recycle: { phase: 'idle' },
@@ -441,9 +432,6 @@ export class MemoryCardController {
       draft.injectEnabled = next.injectEnabled
       draft.injectLimit = next.injectLimit
       draft.injectMaxChars = next.injectMaxChars
-      draft.captureEnabled = next.captureEnabled
-      draft.capturePatterns = next.capturePatterns
-      draft.captureMaxPerSession = next.captureMaxPerSession
       draft.deletionMode = next.deletionMode
     })
   }

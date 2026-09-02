@@ -18,9 +18,6 @@ const BASE: MemorySettings = {
   injectEnabled: true,
   injectLimit: 8,
   injectMaxChars: 1500,
-  captureEnabled: true,
-  capturePatterns: ['记住：'],
-  captureMaxPerSession: 20,
   deletionMode: 'tombstone',
 }
 
@@ -106,6 +103,6 @@ test('先 get() 后 install：源被替换为合并源，get() 跟随', () => {
   const reader = createSettingsReader(BASE)
   assert.equal(reader.get(), BASE)
   const section = install(reader)
-  section.setSource(() => ({ ...BASE, captureEnabled: false }))
-  assert.equal(reader.get().captureEnabled, false)
+  section.setSource(() => ({ ...BASE, deletionMode: 'purge' }))
+  assert.equal(reader.get().deletionMode, 'purge')
 })

@@ -13,9 +13,6 @@ const BASE: MemorySettings = {
   injectEnabled: true,
   injectLimit: 8,
   injectMaxChars: 1500,
-  captureEnabled: true,
-  capturePatterns: ['记住：'],
-  captureMaxPerSession: 20,
   deletionMode: 'tombstone',
 }
 
@@ -35,9 +32,9 @@ interface InputOverrides {
 function makeInput(overrides: InputOverrides = {}) {
   return {
     drafts: overrides.drafts ?? new Map<MemoryCardField, StagedEdit>(),
-    values: overrides.values ?? { ...BASE, injectLimit: 10, captureMaxPerSession: 30 },
+    values: overrides.values ?? { ...BASE, injectLimit: 10 },
     base: overrides.base ?? { injectLimit: 8, injectMaxChars: 1500 },
-    user: overrides.user ?? { injectLimit: 10, captureMaxPerSession: 30 },
+    user: overrides.user ?? { injectLimit: 10 },
     available: overrides.available ?? true,
     writable: overrides.writable ?? true,
     saving: overrides.saving ?? false,
@@ -101,21 +98,21 @@ test('清除草稿：回落组合层 base（base 有值优先于 values）', () 
 test('清除草稿：base 无值则回落 values', () => {
   const s = projectCardState(makeInput({
     base: {},
-    drafts: new Map<MemoryCardField, StagedEdit>([['capturePatterns', { kind: 'clear' }]]),
+    drafts: new Map<MemoryCardField, StagedEdit>([['injectMaxChars', { kind: 'clear' }]]),
   }))
-  assert.equal(s.capturePatterns.text, '记住：')
-  assert.equal(s.capturePatterns.overridden, false)
+  assert.equal(s.injectMaxChars.text, '1500')
+  assert.equal(s.injectMaxChars.overridden, false)
 })
 
 test('布尔/选项草稿：直接投影', () => {
   const s = projectCardState(makeInput({
     drafts: new Map<MemoryCardField, StagedEdit>([
-      ['captureEnabled', { kind: 'bool', checked: false }],
+      ['injectEnabled', { kind: 'bool', checked: false }],
       ['deletionMode', { kind: 'choice', value: 'purge' }],
     ]),
   }))
-  assert.equal(s.captureEnabled.checked, false)
-  assert.equal(s.captureEnabled.overridden, true)
+  assert.equal(s.injectEnabled.checked, false)
+  assert.equal(s.injectEnabled.overridden, true)
   assert.equal(s.deletionMode.value, 'purge')
   assert.equal(s.deletionMode.overridden, true)
 })

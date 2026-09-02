@@ -93,7 +93,7 @@ function stubDeps(overrides: Partial<RouteDeps> = {}): { deps: RouteDeps; calls:
   const calls: Record<string, unknown[]> = {}
   const called = (name: string, args: unknown[]) => { calls[name] = [...(calls[name] ?? []), args] }
   const deps: RouteDeps = {
-    readSettings: () => ({ injectEnabled: true, injectLimit: 8, injectMaxChars: 1500, captureEnabled: true, capturePatterns: [], captureMaxPerSession: 20, deletionMode: 'tombstone' }),
+    readSettings: () => ({ injectEnabled: true, injectLimit: 8, injectMaxChars: 1500, deletionMode: 'tombstone' }),
     getLastRecall: () => null,
     getRecallHistory: () => [],
     getSuggestions: () => { called('getSuggestions', []); return [] },

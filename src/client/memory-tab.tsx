@@ -301,7 +301,7 @@ export function MemoryTab(props: {
             if (e.key !== 'Enter') return
             void quickSave()
           }}
-          placeholder="记住：回车保存…"
+          placeholder="输入内容，回车保存…"
           style={{
             flex: 1,
             padding: '8px 10px',

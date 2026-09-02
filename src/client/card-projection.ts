@@ -24,8 +24,6 @@ import {
   booleanDraft,
   numberDraft,
   parseNumberField,
-  parsePatternsField,
-  patternsDraft,
   type FieldWrite,
 } from './card-util.ts'
 
@@ -58,15 +56,13 @@ const textFieldCodecs: Record<MemoryCardTextField, {
   parse(text: string): FieldWrite | undefined
   format(value: unknown): string
 }> = {
-  capturePatterns: { parse: parsePatternsField, format: patternsDraft },
   injectLimit: { parse: parseNumberField, format: numberDraft },
   injectMaxChars: { parse: parseNumberField, format: numberDraft },
-  captureMaxPerSession: { parse: parseNumberField, format: numberDraft },
 }
 
 /** 文本字段：草稿 → 写入计划（undefined = 非法；布尔/选项字段永不进入文本解析）。写路径（save）与投影共享。 */
 export function parseField(field: MemoryCardField, text: string): FieldWrite | undefined {
-  if (field === 'injectEnabled' || field === 'captureEnabled' || field === 'deletionMode') return undefined
+  if (field === 'injectEnabled' || field === 'deletionMode') return undefined
   return textFieldCodecs[field].parse(text)
 }
 
@@ -103,9 +99,6 @@ export function projectCardState(input: ProjectionInput): MemoryCardState {
     injectEnabled: booleanState(input, 'injectEnabled'),
     injectLimit: textState(input, 'injectLimit'),
     injectMaxChars: textState(input, 'injectMaxChars'),
-    captureEnabled: booleanState(input, 'captureEnabled'),
-    capturePatterns: textState(input, 'capturePatterns'),
-    captureMaxPerSession: textState(input, 'captureMaxPerSession'),
     deletionMode: choiceState(input, 'deletionMode'),
     purge: input.purge,
     recycle: input.recycle,
