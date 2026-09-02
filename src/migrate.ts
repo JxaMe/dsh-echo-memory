@@ -43,12 +43,12 @@ export const MEMORY_MIGRATIONS: readonly MemoryMigration[] = Object.freeze([
     from: 2,
     up: (record: unknown) => {
       const r = record as Record<string, unknown>
-      const source = r.source === 'auto' ? 'agent' : r.source
+      const rest: Record<string, unknown> = { ...r }
       // 移除向量/嵌入占位字段（当前纯本地 BM25F，不再维护向量数据）
-      const { embedding: _embedding, embeddingAt: _embeddingAt, ...rest } = r
-      void _embedding
-      void _embeddingAt
-      return { ...rest, source }
+      delete rest.embedding
+      delete rest.embeddingAt
+      if (rest.source === 'auto') rest.source = 'agent'
+      return rest
     },
   },
 ])

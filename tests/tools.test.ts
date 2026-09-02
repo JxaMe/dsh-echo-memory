@@ -1,6 +1,6 @@
 /**
  * tools.ts 纯逻辑测试：工具 schema 形状、参数归一化、workspace 归属、execute 分支。
- * 覆盖 memory_save / memory_search / memory_forget / memory_restore 的定义与执行。
+ * 覆盖 memory_save / memory_search / memory_forget / memory_restore / memory_suggest 的定义与执行。
  */
 
 import { test } from 'node:test'
@@ -11,6 +11,7 @@ import { MemoryStore } from '../src/store.js'
 import type { StoreLimits } from '../src/store.js'
 import type { MemoryRecord } from '../src/domain.js'
 import { GLOBAL_WORKSPACE } from '../src/domain.js'
+import { SuggestionStore } from '../src/suggestion-store.js'
 import { FakeKvTable } from './helpers.js'
 
 const LIMITS: StoreLimits = { contentMaxChars: 500, tagsMax: 8 }
@@ -75,7 +76,7 @@ test('toOutputItem：tag 数组化、字段投影', () => {
 
 // ---------- memoryTools 定义形状 ----------
 
-test('memoryTools：注册 4 个工具且名称/参数/output 形状正确', () => {
+test('memoryTools（未注入 suggestionStore）：注册 4 个基础工具且名称/参数/output 形状正确', () => {
   const tools = memoryTools(makeStore(), GLOBAL_WORKSPACE, () => 'tombstone')
   assert.deepEqual(tools.map(t => t.name).sort(), ['memory_forget', 'memory_restore', 'memory_save', 'memory_search'])
   const save = tools.find(t => t.name === 'memory_save')!
@@ -88,6 +89,15 @@ test('memoryTools：注册 4 个工具且名称/参数/output 形状正确', () 
   assert.ok(searchProps.limit?.description?.includes('1–50'))
   const forget = tools.find(t => t.name === 'memory_forget')!
   assert.deepEqual(forget.parameters.required, ['id'])
+})
+
+test('memoryTools（注入 suggestionStore）：注册 5 个工具含 memory_suggest', () => {
+  const tools = memoryTools(makeStore(), GLOBAL_WORKSPACE, () => 'tombstone', new SuggestionStore())
+  assert.deepEqual(tools.map(t => t.name).sort(), ['memory_forget', 'memory_restore', 'memory_save', 'memory_search', 'memory_suggest'])
+  const suggest = tools.find(t => t.name === 'memory_suggest')!
+  const suggestParams = suggest.parameters.properties as Record<string, { type?: string }>
+  assert.equal(suggestParams.content!.type, 'string')
+  assert.deepEqual(suggest.parameters.required, ['content'])
 })
 
 // ---------- execute 行为 ----------

@@ -35,7 +35,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 // 命名空间值在浏览器侧拼写而非从 Host 包导入：client 包不得值依赖 Host 包
 // （与官方 bash-card-controller 的 SHELL_NS 同一约定）。
-const MEMORY_SETTINGS_NS_VALUE = 'memory'
+const MEMORY_SETTINGS_NS = 'memory'
 
 /** 本卡片的 locale 命名空间。 */
 const LOCALE_NS = 'settings.memory'
@@ -62,7 +62,7 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'dsh-echo-memory: global dock')
   const controller = new MemoryCardController(
-    ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS_VALUE }),
+    ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS }),
     () => invokePurge(),
     () => invokeStats(),
     () => invokeRecycle(),
@@ -72,7 +72,7 @@ export function apply(ctx: ClientContext): void {
   )
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
-    key: MEMORY_SETTINGS_NS_VALUE,
+    key: MEMORY_SETTINGS_NS,
     locale: LOCALE_NS,
     inject: () => controller.inject(),
   }, MemoryPluginCard))
