@@ -39,6 +39,24 @@ test('extractQuery：多条消息拼接并截断', () => {
   assert.equal(extractQuery([userMsg(long)]).length, 2000)
 })
 
+test('extractQuery：手动粘贴的「相关记忆」回显块剥掉，避免拿 A 搜 A', () => {
+  const echo = '相关记忆 · 按需使用：\n- [fact] VPS（RackNerd）IP 192.236.246.90 SSH root 密码 secret'
+  // 只有回显块 → 空 query
+  assert.equal(extractQuery([userMsg(echo)]), '')
+  // 回显 + 真实提问（两个块）→ 真实提问保留
+  assert.equal(extractQuery([userMsg(echo), userMsg('VPS 怎么续费')]), 'VPS 怎么续费')
+  // 回显 + 追问混在同一个块 → 同样剥掉回显、保留追问，不误伤
+  assert.equal(extractQuery([userMsg(echo + '\n追问：VPS 怎么续费？')]), '追问：VPS 怎么续费？')
+  // 前导空白也识别
+  assert.equal(extractQuery([userMsg('   ' + echo)]), '')
+})
+
+test('extractQuery：真实提问含「相关记忆」字样但非回显标题开头，照常保留', () => {
+  assert.equal(extractQuery([userMsg('帮我查一下 相关记忆 功能怎么关')]), '帮我查一下 相关记忆 功能怎么关')
+  // 正常提问不该被剥，能搜到才正常召回
+  assert.equal(extractQuery([userMsg('VPS 怎么续费')]), 'VPS 怎么续费')
+})
+
 test('searchForRecall：只召回相关记忆，无问不召回', async () => {
   const store = makeStore()
   await store.save({ workspace: '/w/a', content: '部署走 systemd', tags: ['deploy'] }, 1000)

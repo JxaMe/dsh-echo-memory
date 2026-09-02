@@ -13,14 +13,36 @@ import { GLOBAL_WORKSPACE, agentWorkspace } from './domain.js'
 import type { MemoryInjectionConfig } from './prompt.js'
 import { filterRecallHits } from './scoring.js'
 
-/** 从 claimed messages 抽取用于检索的 query（所有 text 块拼接，保留原始大小写由 scorer 统一 lower）。过滤本插件的 recall 注入，避免自增强。 */
+/** 「相关记忆 · 按需使用：」回显标题。用户可能手动把已注入的召回块粘回输入，作为普通 text 块并入 query，导致拿 A 搜 A 的自增强；据此做内容级剥离作为 isRecallMessage 的补充。 */
+const RECALL_ECHO_PREFIX = '相关记忆 · 按需使用：'
+
+/**
+ * 从一个 text 块中剥掉「以标题开头的回显段」：标题行 + 紧接的列表条目行，其余（真实追问）保留。
+ * 只剥标题行/列表行，避免整块丢弃误伤「回显 + 追问混在同一块」的真实提问，保证该召的仍召。
+ * 回显格式就是「标题 + \n 多条 `- ` 列表」；追加的追问不与列表条目同行，可安全保留。
+ */
+function stripRecallEcho(text: string): string {
+  const block = text.trim()
+  if (!block.startsWith(RECALL_ECHO_PREFIX)) return text
+  const lines = block.split('\n')
+  let i = 0
+  // 跳过标题行
+  i++
+  // 跳过紧接的列表条目行（列表条目以 `- ` 开头）
+  while (i < lines.length && /^\s*-\s+/.test(lines[i]!)) i++
+  const rest = lines.slice(i).join('\n').trim()
+  return rest
+}
+
+/** 从 claimed messages 抽取用于检索的 query（所有 text 块拼接，保留原始大小写由 scorer 统一 lower）。过滤 recall 回显（自动注入的 by source.kind，手动粘贴的内容级剥离），避免自增强。 */
 export function extractQuery(messages: readonly UserMessage[]): string {
   const parts: string[] = []
   for (const msg of messages) {
     if (isRecallMessage(msg)) continue
     for (const block of msg.content) {
       if (block.type !== 'text') continue
-      const t = block.text.trim()
+      const stripped = stripRecallEcho(block.text)
+      const t = stripped.trim()
       if (t.length > 0) parts.push(t)
     }
   }
