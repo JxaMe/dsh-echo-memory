@@ -160,3 +160,42 @@ test('decideRecall：limit 与 maxChars 生效', async () => {
 test('renderRecallBlock 格式', () => {
   assert.equal(renderRecallBlock('- [fact] hi'), '相关记忆 · 按需使用：\n- [fact] hi')
 })
+
+test('searchRecall：密码/IP 凭据片段不召回，语义词照常召回', async () => {
+  const store = makeStore()
+  // 真实 VPS 记忆形态：同一条里既有语义词也有凭据
+  await store.save({
+    workspace: '/w/a',
+    content: 'VPS（RackNerd）：IP `192.236.246.90`，SSH 22，root，密码 `2mPfSj03Eq9Z84hAlT`，Ubuntu 24.04',
+    tags: ['vps'],
+  }, 1000)
+  await store.save({ workspace: '/w/a', content: '部署走 systemd 详细步骤', tags: ['deploy'] }, 1001)
+  // 密码片段 / 完整密码 / IP 片段 → 都不该召回 VPS（凭据不是查询意图）
+  assert.equal(store.searchForRecall('/w/a', '2mP', 8, 2000).length, 0)
+  assert.equal(store.searchForRecall('/w/a', '2mPfSj03Eq9Z84hAlT', 8, 2000).length, 0)
+  assert.equal(store.searchForRecall('/w/a', '192.236', 8, 2000).length, 0)
+  assert.equal(store.searchForRecall('/w/a', '192.236.246.90', 8, 2000).length, 0)
+  // 语义词照常召回，且命中返回原文（凭据还在，模型可用）
+  const hits = store.searchForRecall('/w/a', 'vps', 8, 2000)
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0]!.record.content, 'VPS（RackNerd）：IP `192.236.246.90`，SSH 22，root，密码 `2mPfSj03Eq9Z84hAlT`，Ubuntu 24.04')
+  const hits2 = store.searchForRecall('/w/a', 'racknerd 服务器', 8, 2000)
+  assert.equal(hits2.length, 1)
+  assert.equal(hits2[0]!.record.content, 'VPS（RackNerd）：IP `192.236.246.90`，SSH 22，root，密码 `2mPfSj03Eq9Z84hAlT`，Ubuntu 24.04')
+})
+
+test('decideRecall：用户问 vps 时注入完整记忆（含凭据原文供使用）', async () => {
+  const store = makeStore()
+  await store.save({
+    workspace: '/w/a',
+    content: 'VPS（RackNerd）：IP `192.236.246.90`，SSH 22，root，密码 `2mPfSj03Eq9Z84hAlT`',
+    tags: ['vps'],
+  }, 1000)
+  const ag = agent('/w/a')
+  const res = decideRecall(store, () => ({ enabled: true, limit: 8, maxChars: 1500 }), ag, [userMsg('vps 怎么连')])
+  assert.ok(res)
+  assert.match(res!.text, /VPS（RackNerd）/)
+  assert.match(res!.text, /2mPfSj03Eq9Z84hAlT/) // 完整凭据在注入里，模型可直接使用
+  const bad = decideRecall(store, () => ({ enabled: true, limit: 8, maxChars: 1500 }), ag, [userMsg('2mPfSj03Eq9Z84hAlT 是什么')])
+  assert.equal(bad, undefined) // 纯凭据提问不注入
+})

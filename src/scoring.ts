@@ -332,7 +332,16 @@ function bm25FForRecord(
   return sum
 }
 
-/** 召回一站式：分词→同义词→BM25F→过滤，调用方只需给 candidates+query */
+/** 凭据形态长串（≥10 位字母数字混合，如密码/API key）与 IPv4 地址：匹配时剥除，避免「输密码片段就召回」的拿 A 搜 A。 */
+export function stripCredentialText(text: string): string {
+  return text
+    // IPv4：4 段点分十进制
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, ' ')
+    // 长字母数字混合串（如 2mPfSj03Eq9Z84hAlT / 187006533b43e436）：含字母且含数字才算凭据形态，纯数字/纯字母词不剥
+    .replace(/\b[0-9A-Za-z]{10,}\b/g, (m) => (/[0-9]/.test(m) && /[A-Za-z]/.test(m)) ? ' ' : m)
+}
+
+/** 召回一站式：分词→同义词→BM25F→过滤，调用方只需给 candidates+query。匹配内容先剥凭据形态串（密码/API key/IP），避免输入凭据片段即召回；命中的 record 仍返回原文（注入渲染要用完整内容）。 */
 export function searchRecall(
   candidates: readonly MemoryRecord[],
   query: string,
@@ -343,8 +352,17 @@ export function searchRecall(
   const base = tokenizeForRecall(query)
   if (base.length === 0) return []
   const tokens = expandWithLocalSynonyms(base)
-  const hits = scoreBM25F(candidates, tokens, now)
-  return filterRecallHits(hits).slice(0, clampInt(limit, 8, 1, 50))
+  const originalById = new Map<string, MemoryRecord>(candidates.map(r => [r.id, r]))
+  const matchCands = candidates.map(r => ({
+    ...r,
+    content: stripCredentialText(r.content),
+    tags: r.tags.map(t => stripCredentialText(t)),
+  }))
+  const hits = scoreBM25F(matchCands, tokens, now)
+  const restored = hits
+    .map(h => ({ ...h, record: originalById.get(h.record.id) ?? h.record }))
+    .filter(h => h.record !== undefined)
+  return filterRecallHits(restored).slice(0, clampInt(limit, 8, 1, 50))
 }
 
 /**

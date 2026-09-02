@@ -11,7 +11,7 @@ import {
   renderLine,
 } from '../src/store.js'
 import type { StoreLimits } from '../src/store.js'
-import { keywordScore, recencyFactor } from '../src/scoring.js'
+import { keywordScore, recencyFactor, stripCredentialText } from '../src/scoring.js'
 import { GLOBAL_WORKSPACE, type MemoryRecord } from '../src/domain.js'
 import { FakeKvTable } from './helpers.js'
 
@@ -214,6 +214,17 @@ test('归一化与评分纯函数', () => {
 
   assert.equal(renderLine(record()), '- [fact] 部署走 systemd #deploy #systemd')
   assert.equal(renderLine(record({ strength: 3 })), '- [fact] 部署走 systemd #deploy #systemd (x3)')
+})
+
+test('stripCredentialText：剥凭据形态串，保留语义词', () => {
+  // 密码/API key 长混合串、IPv4 → 剥除；IP 短词保留
+  assert.equal(stripCredentialText('密码 2mPfSj03Eq9Z84hAlT IP 192.236.246.90'), '密码   IP  ')
+  // 语义词不受影响
+  assert.equal(stripCredentialText('VPS（RackNerd） SSH 22 root Ubuntu 24.04'), 'VPS（RackNerd） SSH 22 root Ubuntu 24.04')
+  // 短串/纯数字/纯字母不剥（避免误伤 systemd、config 等普通词）
+  assert.equal(stripCredentialText('systemd config root'), 'systemd config root')
+  // systemctl / hysteria-server（含连字符）不剥
+  assert.equal(stripCredentialText('hysteria-server.service config.yaml'), 'hysteria-server.service config.yaml')
 })
 test('injectionStats：只有启用时记账，命中数正确', () => {
   const store = makeStore()
