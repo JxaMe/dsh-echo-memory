@@ -8,15 +8,7 @@ export async function resolveDeepSeekKey(): Promise<string | undefined> {
   return undefined
 }
 
-export function hasDeepSeekKeySync(): boolean {
-  return false
-}
-
-export function hasDeepSeekKey(): boolean {
-  return false
-}
-
-export { clearHasKeyCache } from './store.js'
+export { hasDeepSeekKey, hasDeepSeekKey as hasDeepSeekKeySync, clearHasKeyCache } from './store.js'
 
 /** 余弦相似度（保留纯函数，本地可用）。 */
 export function cosine(a: readonly number[], b: readonly number[]): number {

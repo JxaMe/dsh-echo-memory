@@ -35,12 +35,19 @@ try {
   const customs = ['本机', '回音象', '原点', '召回', '召回历史', '拖选', '分层', '落盘', '部署', '前端', '后端', '存储', '重启', '上线', '发布', '系统', '信息']
   for (const w of customs) {
     const lower = w.toLowerCase()
-    seg.DICT.TABLE[lower] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
-    seg.DICT.TABLE[w] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+    const dict: Record<string, unknown> = (seg as unknown as { DICT: { TABLE: Record<string, unknown>; TABLE2: Record<number, Record<string, unknown>> } }).DICT as unknown as Record<string, unknown> as never
+    const table = (dict as unknown as { TABLE: Record<string, unknown> }).TABLE
+    const table2 = (dict as unknown as { TABLE2: Record<number, Record<string, unknown>> }).TABLE2
+    if (table) {
+      table[lower] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+      table[w] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+    }
     const len = w.length
-    if (!seg.DICT.TABLE2[len]) seg.DICT.TABLE2[len] = {}
-    seg.DICT.TABLE2[len][lower] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
-    seg.DICT.TABLE2[len][w] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+    if (table2) {
+      if (!table2[len]) table2[len] = {}
+      table2[len][lower] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+      table2[len][w] = { p: 1048576, f: 1000 } as unknown as { p: number; f: number }
+    }
   }
   segment = seg
 } catch { segment = null }
@@ -65,8 +72,8 @@ export const STOPWORDS: ReadonlySet<string> = new Set([
   '会', '能', '要', '想', '去', '来', '说',
 ])
 
-/** 元问题正则：问“为什么召回”这类不该召回 */
-export const META_QUERY_RE = /(为什么.*召回|相关记忆|触发召回)/
+/** 元问题正则：问“为什么召回”这类不该召回（扩展覆盖怎么/原理/如何） */
+export const META_QUERY_RE = /(为什么.*召回|召回.*为什么|怎么.*召回|召回.*怎么|如何.*召回|召回.*如何|相关记忆|触发召回|召回原理)/
 
 export function clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
   if (value === undefined) return fallback
@@ -87,7 +94,7 @@ export function tieBreak(a: MemoryRecord, b: MemoryRecord): number {
   return b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 }
 
-/** 关键词评分：标签精确 +8/个、标签前缀（≥2 字符）+4/个、正文子串 +2/次（上限 5 次）；无匹配返回 0。 */
+/** 关键词评分：标签精确 +8/个、标签前缀（≥2 字符）+4/个（精确不重复计前缀）、正文子串 +2/次（上限 5 次）；无匹配返回 0。 */
 export function keywordScore(record: MemoryRecord, query: string): number {
   const q = query.trim().toLowerCase()
   if (q.length === 0) return 1
@@ -95,7 +102,7 @@ export function keywordScore(record: MemoryRecord, query: string): number {
   if (record.tags.includes(q)) score += 8
   if (q.length >= 2) {
     for (const tag of record.tags) {
-      if (tag.startsWith(q)) score += 4
+      if (tag !== q && tag.startsWith(q)) score += 4
     }
   }
   const content = record.content.toLowerCase()
@@ -423,8 +430,7 @@ export function scoreBM25F(
 ): ScoredHit[] {
   const effective = filterStopwords(tokens)
   if (candidates.length === 0 || effective.length === 0) return []
-  // 单 token 不召回：避免“系统”这种单字虚命中
-  if (effective.length < 2) return []
+  // 单 token 允许召回：稀有词（如 systemd）单 token 也应命中，泛词由阈值与停用词过滤
   const idf = buildBM25FIdfMap(effective, candidates)
   const fieldLens = buildBM25FFieldLenMap(candidates)
   const hits: ScoredHit[] = []

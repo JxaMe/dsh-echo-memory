@@ -116,34 +116,39 @@ export function createCaptureHandler(
       .map(pattern => pattern.trim().toLowerCase())
       .filter(pattern => pattern.length > 0)
     const normalized = text.toLowerCase()
+    let bestPattern: string | undefined
+    let bestIndex = Infinity
     for (const pattern of patterns) {
-      const index = normalized.indexOf(pattern)
-      if (index === -1) continue
-      const sessionKey = session.header.id
-      lastSeen.set(sessionKey, Date.now())
-      gcCounts()
-      const used = counts.get(sessionKey) ?? 0
-      if (used >= cfg.maxPerSession) return
-      const claimed = text.slice(index + pattern.length).replace(/^[:：,，。.\s]+/, '').trim()
-      // 过短 claimed 过滤：仅当有 claimed 时才过滤（claimed 为空则回退整句，保留原有行为以兼容“请记住”这类测试）
-      if (claimed.length > 0) {
-        if (claimed.length < 2 || claimed.toLowerCase() === pattern) return
+      const idx = normalized.indexOf(pattern)
+      if (idx !== -1 && idx < bestIndex) {
+        bestIndex = idx
+        bestPattern = pattern
       }
-      const content = claimed.length > 0 ? claimed : text.trim()
-      if (content.length < 2) return
-      counts.set(sessionKey, used + 1) // 校验通过后才占额
-      const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
-      void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })
-        .then(() => {
-          // 确认 = 真存上了：resolve 后才进缓冲（失败不报「已记住」）。
-          feed.push({ sessionId: sessionKey, content })
-        })
-        .catch(error => {
-          // 保存失败：回滚占用（失败不消耗会话额度），只告警不打断事件流。
-          counts.set(sessionKey, Math.max(0, (counts.get(sessionKey) ?? 1) - 1))
-          console.warn('[dsh-echo-memory] auto capture failed; message skipped', error)
-        })
-      return
     }
+    if (bestPattern === undefined) return
+    const pattern = bestPattern
+    const index = bestIndex
+    const sessionKey = session.header.id
+    lastSeen.set(sessionKey, Date.now())
+    gcCounts()
+    const used = counts.get(sessionKey) ?? 0
+    if (used >= cfg.maxPerSession) return
+    const claimed = text.slice(index + pattern.length).replace(/^[:：,，。.\s]+/, '').trim()
+    if (claimed.length === 0) return
+    if (claimed.length < 2 || claimed.toLowerCase() === pattern) return
+    const content = claimed
+    if (content.length < 2) return
+    counts.set(sessionKey, used + 1) // 校验通过后才占额
+    const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
+    void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })
+      .then(() => {
+        // 确认 = 真存上了：resolve 后才进缓冲（失败不报「已记住」）。
+        feed.push({ sessionId: sessionKey, content })
+      })
+      .catch(error => {
+        // 保存失败：回滚到占额前的值，失败不消耗会话额度
+        counts.set(sessionKey, used)
+        console.warn('[dsh-echo-memory] auto capture failed; message skipped', error)
+      })
   }
 }

@@ -8,7 +8,7 @@
 
 记忆**落盘在你本地的 `memory.json`**，人类可读、原子写入、重启不丢。
 
-> **兼容性：仅适配 `DSH 0.1.2-alpha.2`（`cordis ^4.0.2`）**。`0.1.10` 起已迁移至 `dsh-client-store / settings.installSection / 3参 intercept`；`0.x` 阶段 API 仍可能 breaking，以 `package.json` 的 peerDependencies 为准。
+> **兼容性：仅适配 `DSH 0.1.2-alpha.4`（`cordis ^4.0.2`）**。`0.1.10` 起已迁移至 `dsh-client-store / settings.installSection / 3参 intercept`；`0.x` 阶段 API 仍可能 breaking，以 `package.json` 的 peerDependencies 为准。
 
 ## ✨ 功能总览
 
@@ -86,7 +86,7 @@
 
 ## 🔧 安装
 
-> 以 web profile 为例，其他 profile 把 `web` 换成对应名字。已安装 **DSH 0.1.2-alpha.2** 即可，**不需要本地 Node / pnpm**。
+> 以 web profile 为例，其他 profile 把 `web` 换成对应名字。已安装 **DSH 0.1.2-alpha.4** 即可，**不需要本地 Node / pnpm**。
 
 把下面的提示词发给 **DSH 的 agent**（新建会话粘贴即可），它会自行判断你的 DSH 安装方式并执行与核验：
 

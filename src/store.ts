@@ -12,6 +12,7 @@ import type { DeletionMode } from './settings.js'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 
 /** 一次保存的写限值（由插件配置解析而来）。 */
 export interface StoreLimits {
@@ -177,9 +178,10 @@ export function hasDeepSeekKey(): boolean {
   }
   try {
     const raw = readFileSync(join(homedir(), '.dsh', '.credentials.yaml'), 'utf8')
-    // 仅认行首的键，忽略 "# DEEPSEEK_API_KEY: ..." 注释行
-    const m = raw.match(/^\s*DEEPSEEK_API_KEY:\s*([^\s#]+)/m)
-    const hit = m?.[1] !== undefined && m[1].trim().length > 0
+    // 仅认行首的键，忽略 "# DEEPSEEK_API_KEY: ..." 注释行，兼容引号包裹
+    const m = raw.match(/^\s*DEEPSEEK_API_KEY:\s*["']?([^\s#"']+)["']?/m)
+    const rawHit = m?.[1]?.trim().replace(/^["']|["']$/g, '') ?? ''
+    const hit = rawHit.length > 0
     cachedHasKey = hit
     cachedHasKeyAt = now
     return hit
@@ -202,6 +204,7 @@ export function clearHasKeyCache(): void {
 export class MemoryStore {
   private seq = 0
   private readonly injections: { requests: number; withContent: number } = { requests: 0, withContent: 0 }
+  private saveChain: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly table: KvTable<string, MemoryRecord>,
@@ -262,40 +265,48 @@ export class MemoryStore {
    * @returns 保存结果；正文不含非空白字符时抛 TypeError。
    */
   async save(input: SaveInput, now: number = Date.now()): Promise<SaveOutcome> {
-    const content = normalizeContent(input.content, this.limits.contentMaxChars)
-    if (content.length === 0) {
-      throw new TypeError('dsh-echo-memory: memory content must contain a non-whitespace character')
-    }
-    const kind = input.kind ?? 'fact'
-    const workspace = input.workspace.trim() === '' ? GLOBAL_WORKSPACE : input.workspace.trim()
-    const tags = normalizeTags(input.tags, this.limits.tagsMax)
-    const source = input.source ?? 'agent'
-    for (const [id, record] of this.table.entries()) {
-      if (record.deletedAt !== undefined) continue
-      if (record.workspace === workspace && record.kind === kind && record.content === content) {
-        const next: MemoryRecord = {
-          ...record,
-          strength: record.strength + 1,
-          updatedAt: now,
-        }
-        await this.table.put(id, next)
-        return { existed: true, id, strength: next.strength, workspace }
+    const prev = this.saveChain
+    let release!: () => void
+    this.saveChain = new Promise<void>(resolve => { release = resolve })
+    await prev
+    try {
+      const content = normalizeContent(input.content, this.limits.contentMaxChars)
+      if (content.length === 0) {
+        throw new TypeError('dsh-echo-memory: memory content must contain a non-whitespace character')
       }
+      const kind = input.kind ?? 'fact'
+      const workspace = input.workspace.trim() === '' ? GLOBAL_WORKSPACE : input.workspace.trim()
+      const tags = normalizeTags(input.tags, this.limits.tagsMax)
+      const source = input.source ?? 'agent'
+      for (const [id, record] of this.table.entries()) {
+        if (record.deletedAt !== undefined) continue
+        if (record.workspace === workspace && record.kind === kind && record.content === content) {
+          const next: MemoryRecord = {
+            ...record,
+            strength: record.strength + 1,
+            updatedAt: now,
+          }
+          await this.table.put(id, next)
+          return { existed: true, id, strength: next.strength, workspace }
+        }
+      }
+      const id = this.nextId(now)
+      const record: MemoryRecord = {
+        id,
+        workspace,
+        kind,
+        content,
+        tags,
+        strength: 1,
+        source,
+        createdAt: now,
+        updatedAt: now,
+      }
+      await this.table.put(id, record)
+      return { existed: false, id, strength: 1, workspace }
+    } finally {
+      release()
     }
-    const id = this.nextId(now)
-    const record: MemoryRecord = {
-      id,
-      workspace,
-      kind,
-      content,
-      tags,
-      strength: 1,
-      source,
-      createdAt: now,
-      updatedAt: now,
-    }
-    await this.table.put(id, record)
-    return { existed: false, id, strength: 1, workspace }
   }
 
   /**
@@ -360,20 +371,8 @@ export class MemoryStore {
   async restore(id: string): Promise<boolean> {
     const rec = this.table.get(id)
     if (rec === undefined || rec.deletedAt === undefined) return false
-    const restored: MemoryRecord = {
-      id: rec.id,
-      workspace: rec.workspace,
-      kind: rec.kind,
-      content: rec.content,
-      tags: rec.tags,
-      strength: rec.strength,
-      source: rec.source,
-      createdAt: rec.createdAt,
-      updatedAt: rec.updatedAt,
-      ...(rec.embedding !== undefined ? { embedding: rec.embedding } : {}),
-      ...(rec.embeddingAt !== undefined ? { embeddingAt: rec.embeddingAt } : {}),
-    }
-    await this.table.put(id, restored)
+    const { deletedAt: _deletedAt, ...rest } = rec as MemoryRecord & { deletedAt?: number }
+    await this.table.put(id, rest as MemoryRecord)
     return true
   }
 
@@ -384,10 +383,12 @@ export class MemoryStore {
     return this.table.delete(id)
   }
 
-  /** 更新一条记忆的正文/标签（保留 strength/source/时间，刷新 updatedAt）。 */
+  /** 更新一条记忆的正文/标签（保留 strength/source/时间，刷新 updatedAt）。墓碑不可直接更新。 */
   async update(id: string, patch: { content?: string; tags?: readonly string[] }, now: number = Date.now()): Promise<boolean> {
     const rec = this.table.get(id)
     if (rec === undefined) return false
+    if (rec.deletedAt !== undefined) return false
+    if (patch.content === undefined && patch.tags === undefined) return false
     const content = patch.content !== undefined ? normalizeContent(patch.content, this.limits.contentMaxChars) : rec.content
     if (content.length === 0) return false
     const tags = patch.tags !== undefined ? normalizeTags(patch.tags, this.limits.tagsMax) : rec.tags
@@ -516,7 +517,8 @@ export class MemoryStore {
 
   private nextId(now: number): string {
     for (;;) {
-      const id = `mem-${now}-${this.seq}`
+      const suffix = randomUUID().slice(0, 8)
+      const id = `mem-${now}-${this.seq}-${suffix}`
       this.seq += 1
       if (this.table.get(id) === undefined) return id
       if (this.seq > 1_000_000) {

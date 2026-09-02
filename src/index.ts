@@ -21,7 +21,7 @@ import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.j
 import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
-import { createRecallMessage, decideRecall, extractQuery } from './recall.js'
+import { createRecallMessage, decideRecall, extractQuery, isRecallMessage } from './recall.js'
 import { migrateMemoryFile } from './migrate.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
@@ -108,8 +108,8 @@ export default class MemoryService extends Service {
     // 领域版本迁移（文件级，open 之前）：schema 破坏性变更在此升级旧库。
     await migrateMemoryFile(storageRoot(), memoryDomainSpec.version)
     const domain = await this.ctx.storageDomain.open(memoryDomainSpec)
-    this.ctx.effect(() => async () => {
-      await domain.close()
+    this.ctx.effect(() => () => {
+      void domain.close()
     }, 'dsh-echo-memory.domainClose')
     const table = domain.table('memories')
     this.store = new MemoryStore(table, {
@@ -200,20 +200,39 @@ export default class MemoryService extends Service {
   /** 统计/墓碑清理的 HTTP 直连（供 card/Dock fetch）— 薄转接，逻辑在 host-routes */
   private registerPreviewRoute(ctx: Context): void {
     registerMemoryRoutes(ctx, {
-      store: this.requireStore(),
       readSettings: () => this.settingsReader.get(),
       getLastRecall: () => this.recallStore.last ?? { at: 0, query: '', hits: [] },
       getRecallHistory: () => this.recallStore.list(),
-      memoryStats: () => this.memoryStats(),
-      purgeTombstones: () => this.purgeTombstones(),
-      listDeleted: (limit) => this.listDeleted(limit),
-      restore: (id) => this.restore(id),
-      purgeOne: (id) => this.purgeOne(id),
-      updateMemory: (id, patch) => this.updateMemory(id, patch),
-      listRecent: (limit) => this.listRecent(limit),
-      searchRecent: (q, limit) => this.searchRecent(q, limit),
-      save: (input) => this.save(input),
-      forget: (id) => this.forget(id),
+      memoryStats: () => {
+        try { return this.memoryStats() } catch { return { injections: { requests: 0, withContent: 0 }, memories: 0 } }
+      },
+      purgeTombstones: async () => {
+        try { return await this.purgeTombstones() } catch { return 0 }
+      },
+      listDeleted: (limit) => {
+        try { return this.listDeleted(limit) } catch { return [] }
+      },
+      restore: async (id) => {
+        try { return await this.restore(id) } catch { return false }
+      },
+      purgeOne: async (id) => {
+        try { return await this.purgeOne(id) } catch { return false }
+      },
+      updateMemory: async (id, patch) => {
+        try { return await this.updateMemory(id, patch) } catch { return false }
+      },
+      listRecent: (limit) => {
+        try { return this.listRecent(limit) } catch { return [] }
+      },
+      searchRecent: (q, limit) => {
+        try { return this.searchRecent(q, limit) } catch { return [] }
+      },
+      save: async (input) => {
+        try { return await this.save(input) } catch (e) { throw e }
+      },
+      forget: async (id) => {
+        try { return await this.forget(id) } catch { return false }
+      },
       defaultWorkspace: this.config.defaultWorkspace,
     })
   }
@@ -248,8 +267,11 @@ export default class MemoryService extends Service {
   private registerRecall(): void {
     let warnedOnce = false
     this.ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
+      try { signal.throwIfAborted() } catch { return { kind: 'reject' as const, reason: 'aborted' } }
       const decision = await next()
       if (decision.kind === 'reject') return decision
+      // 幂等：已含 recall 注入则不再注入，避免重试/多插件重复
+      if (messages.some(m => isRecallMessage(m as never)) || decision.messages.some(m => isRecallMessage(m as never))) return decision
       try {
         signal.throwIfAborted()
         const recall = decideRecall(this.requireStore(), () => {
@@ -296,21 +318,6 @@ export default class MemoryService extends Service {
     }
     return store
   }
-}
-
-async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
-  const MAX_BODY = 64 * 1024 // 64 KiB 足够记忆 payload，防大包撑内存
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    const buf = chunk as Buffer
-    size += buf.length
-    if (size > MAX_BODY) throw new Error('request body too large')
-    chunks.push(buf)
-  }
-  const raw = Buffer.concat(chunks).toString('utf8')
-  if (!raw) return {}
-  return JSON.parse(raw) as unknown
 }
 
 /** 存储后端根目录（与 dsh 标准装配一致：`$DSH_HOME/storages`，默认 `~/.dsh/storages`）。 */

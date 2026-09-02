@@ -92,11 +92,25 @@ export const memoryRecordSchema = z.object({
       message: 'memory deletedAt must not precede createdAt',
     })
   }
+  if (record.deletedAt !== undefined && record.deletedAt < record.updatedAt) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['deletedAt'],
+      message: 'memory deletedAt must not precede updatedAt',
+    })
+  }
   if (new Set(record.tags).size !== record.tags.length) {
     ctx.addIssue({
       code: 'custom',
       path: ['tags'],
       message: 'memory tags must be unique',
+    })
+  }
+  if (record.embedding !== undefined && record.embedding.length > 2048) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['embedding'],
+      message: 'memory embedding must have at most 2048 dimensions',
     })
   }
 }) as unknown as z.ZodType<MemoryRecord>

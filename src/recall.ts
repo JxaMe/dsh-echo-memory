@@ -13,10 +13,11 @@ import { GLOBAL_WORKSPACE, agentWorkspace } from './domain.js'
 import type { MemoryInjectionConfig } from './prompt.js'
 import { filterRecallHits } from './scoring.js'
 
-/** 从 claimed messages 抽取用于检索的 query（所有 text 块拼接，保留原始大小写由 scorer 统一 lower）。 */
+/** 从 claimed messages 抽取用于检索的 query（所有 text 块拼接，保留原始大小写由 scorer 统一 lower）。过滤本插件的 recall 注入，避免自增强。 */
 export function extractQuery(messages: readonly UserMessage[]): string {
   const parts: string[] = []
   for (const msg of messages) {
+    if (isRecallMessage(msg)) continue
     for (const block of msg.content) {
       if (block.type !== 'text') continue
       const t = block.text.trim()
@@ -52,7 +53,7 @@ export function decideRecall(
   read: () => MemoryInjectionConfig,
   agent: Agent,
   messages: readonly UserMessage[],
-): { text: string; hits: number; rawHits: import('./store.js').SearchHit[] } | undefined {
+): { text: string; hits: number; rawHits: readonly import('./store.js').SearchHit[] } | undefined {
   const { enabled, limit, maxChars } = read()
   if (!enabled) return undefined
   const query = extractQuery(messages)
@@ -62,12 +63,12 @@ export function decideRecall(
   }
   const workspace = agentWorkspace(agent) ?? GLOBAL_WORKSPACE
   const rawHits = store.searchForRecall(workspace, query, limit)
-  const hits = filterRecallHits(rawHits) as import('./store.js').SearchHit[]
+  const hits = filterRecallHits(rawHits)
   if (hits.length === 0) {
     store.recordAssembly(true, false)
     return undefined
   }
-  const recallText = store.renderRecallText(hits as any, maxChars)
+  const recallText = store.renderRecallText(hits, maxChars)
   if (recallText.length === 0) {
     store.recordAssembly(true, false)
     return undefined
@@ -84,7 +85,7 @@ export async function decideRecallAsync(
   read: () => MemoryInjectionConfig,
   agent: Agent,
   messages: readonly UserMessage[],
-): Promise<{ text: string; hits: number; rawHits: import('./store.js').SearchHit[] } | undefined> {
+): Promise<{ text: string; hits: number; rawHits: readonly import('./store.js').SearchHit[] } | undefined> {
   return decideRecall(store, read, agent, messages)
 }
 

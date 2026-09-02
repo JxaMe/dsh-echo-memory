@@ -34,6 +34,24 @@ function formatTime(ts: number): string {
   return `${Math.floor(d / 86_400_000)}天前`
 }
 
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {}
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return ok
+  } catch { return false }
+}
+
 export function GlobalDock() {
   const [dotPos, setDotPos] = useState<{ x: number; y: number } | null>(null)
   const [showManage, setShowManage] = useState(false)
@@ -58,13 +76,21 @@ export function GlobalDock() {
 
   const openManage = useCallback(() => setShowManage(true), [])
 
+  // 时间文案每分钟刷新一次，否则“刚刚”不会变
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => forceTick((x) => x + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   const saveDropped = useCallback(async (raw: string) => {
     const text = raw.trim()
     if (text.length < 2) return
-    const clipped = text.length > 500 ? text.slice(0, 500) : text
+    const wasClipped = text.length > 500
+    const clipped = wasClipped ? text.slice(0, 500) : text
     const ok = await saveMemory(clipped, saveWorkspace)
     const preview = clipped.length > 20 ? clipped.slice(0, 20).trimEnd() + '…' : clipped
-    setDropToast(ok ? `已记住：${preview}` : '保存失败')
+    setDropToast(ok ? `已记住：${preview}${wasClipped ? '（已截断500）' : ''}` : '保存失败')
     if (dropToastTimer.current) clearTimeout(dropToastTimer.current)
     dropToastTimer.current = setTimeout(() => setDropToast(null), 2200)
     if (ok && showManage && activeTab === 'memory') {
@@ -75,7 +101,11 @@ export function GlobalDock() {
   const dotDropHandlers = {
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!isDropOver) setIsDropOver(true) },
     onDragEnter: (e: React.DragEvent) => { e.preventDefault(); setIsDropOver(true) },
-    onDragLeave: () => setIsDropOver(false),
+    onDragLeave: (e: React.DragEvent) => {
+      const rel = e.relatedTarget as HTMLElement | null
+      if (rel && (e.currentTarget as HTMLElement).contains(rel)) return
+      setIsDropOver(false)
+    },
     onDrop: (e: React.DragEvent) => {
       e.preventDefault()
       setIsDropOver(false)
@@ -105,14 +135,32 @@ export function GlobalDock() {
     if (pos) setDotPos(pos)
   }, [])
 
-  // 召回轮询已收进 useRecallFeed
-  const { hits, showBig, collapsed, setShowBig, setCollapsed } = useRecallFeed(showManage)
+  // 窗口 resize 后点位越界校正
+  useEffect(() => {
+    const onResize = () => {
+      setDotPos((prev) => {
+        if (!prev) return prev
+        const nx = Math.min(window.innerWidth - DOT_SIZE - 4, Math.max(4, prev.x))
+        const ny = Math.min(window.innerHeight - DOT_SIZE - 4, Math.max(4, prev.y))
+        if (nx !== prev.x || ny !== prev.y) {
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: nx, y: ny })) } catch {}
+          return { x: nx, y: ny }
+        }
+        return prev
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
-  // 管理面板数据 - 记忆列表
+  // 召回轮询已收进 useRecallFeed
+  const { hits, showBig, collapsed, setShowBig, setCollapsed, pauseHide, resumeHide } = useRecallFeed(showManage)
+
+  // 管理面板数据 - 记忆列表（300ms 防抖，单请求）
   useEffect(() => {
     if (!showManage || activeTab !== 'memory') return
     let cancelled = false
-    const fetchList = async () => {
+    const t = setTimeout(async () => {
       setLoading(true)
       try {
         const items = await fetchMemoryList(manageQuery)
@@ -121,9 +169,7 @@ export function GlobalDock() {
       } catch {} finally {
         if (!cancelled) setLoading(false)
       }
-    }
-    void fetchList()
-    const t = setTimeout(fetchList, 300)
+    }, 300)
     return () => {
       cancelled = true
       clearTimeout(t)
@@ -226,7 +272,7 @@ export function GlobalDock() {
             background: 'var(--dsw-alias-bg-layer-2)',
             border: isPanelDropOver ? '1px solid var(--dsw-alias-brand-primary)' : '1px solid var(--dsw-alias-border-l2)',
             boxShadow: isPanelDropOver ? '0 16px 40px rgba(0,0,0,0.16), 0 0 0 2px rgba(99,102,241,0.15)' : '0 16px 40px rgba(0,0,0,0.16), 0 4px 12px rgba(0,0,0,0.08)',
-            zIndex: 9999,
+            zIndex: 40,
             overflow: 'hidden',
             transition: 'border-color .15s, box-shadow .15s',
           }}
@@ -460,9 +506,7 @@ export function GlobalDock() {
                               </button>
                               <button
                                 type="button"
-                                onClick={async () => {
-                                  try { await navigator.clipboard.writeText(r.content) } catch {}
-                                }}
+                                onClick={() => { void copyText(r.content) }}
                                 style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
                               >
                                 ⎘ 复制
@@ -558,7 +602,7 @@ export function GlobalDock() {
                           </div>
                           <button
                             type="button"
-                            onClick={async () => { try { await navigator.clipboard.writeText(h.content) } catch {} }}
+                            onClick={() => { void copyText(h.content) }}
                             style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px', flexShrink: 0 }}
                             title="复制"
                           >
@@ -574,7 +618,7 @@ export function GlobalDock() {
           )}
         </div>
         {dropToast && (
-          <div style={{ position: 'fixed', bottom: '510px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 10000, maxWidth: 'min(320px, calc(100vw - 32px))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ position: 'fixed', bottom: '510px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 41, maxWidth: 'min(320px, calc(100vw - 32px))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {dropToast}
           </div>
         )}
@@ -595,7 +639,7 @@ export function GlobalDock() {
     cursor: 'grab',
     boxShadow: isDropOver ? '0 4px 16px rgba(99,102,241,0.25), 0 0 0 3px rgba(99,102,241,0.15)' : '0 4px 12px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06)',
     fontSize: '16px',
-    zIndex: 9999,
+    zIndex: 40,
     touchAction: 'none',
     userSelect: 'none',
     overflow: 'hidden',
@@ -622,8 +666,8 @@ export function GlobalDock() {
     return (
       <>
         {dotButton('记忆管理 · 点击打开 / 拖动移动 / 双击复位 · 拖文字到此可直接记住')}
-        {dropToast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 10000 }}>{dropToast}</div>}
-        {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 10000, pointerEvents: 'none' }}>松手记住</div>}
+        {dropToast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 41 }}>{dropToast}</div>}
+        {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 41, pointerEvents: 'none' }}>松手记住</div>}
       </>
     )
   }
@@ -632,8 +676,8 @@ export function GlobalDock() {
     return (
       <>
         {dotButton('已召回 · 点击打开记忆管理 / 拖动移动 / 双击复位 · 拖文字到此可直接记住')}
-        {dropToast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 10000 }}>{dropToast}</div>}
-        {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 10000, pointerEvents: 'none' }}>松手记住</div>}
+        {dropToast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 41 }}>{dropToast}</div>}
+        {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 41, pointerEvents: 'none' }}>松手记住</div>}
       </>
     )
   }
@@ -647,6 +691,8 @@ export function GlobalDock() {
 
   return (
     <div
+      onMouseEnter={pauseHide}
+      onMouseLeave={resumeHide}
       style={{
         position: 'fixed',
         bottom: '20px',
@@ -661,7 +707,7 @@ export function GlobalDock() {
         border: '1px solid var(--dsw-alias-border-l2)',
         boxShadow: '0 12px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.08)',
         width: 'min(380px, calc(100vw - 32px))',
-        zIndex: 9999,
+        zIndex: 40,
       }}
     >
       <div style={{ paddingTop: '1px' }}><img src={elephantImage} alt="" draggable={false} onDragStart={(e) => e.preventDefault()} style={{ width: '20px', height: '20px', borderRadius: '50%', objectFit: 'cover', display: 'block', border: '1px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', pointerEvents: 'none', userSelect: 'none' }} /></div>

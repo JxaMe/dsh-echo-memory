@@ -46,7 +46,7 @@ test('save 新建记录：默认值、正文/标签归一化、id 生成', async
   assert.equal(outcome.existed, false)
   assert.equal(outcome.strength, 1)
   assert.equal(outcome.workspace, '/workspace/a')
-  assert.match(outcome.id, /^mem-\d+-\d+$/)
+  assert.match(outcome.id, /^mem-\d+-\d+-[0-9a-f]{8}$/)
   // 测试通过公开 search 读取，避免依赖私有字段：
   const hit = store.search({ query: '记住' })[0]
   assert.ok(hit)

@@ -10,7 +10,7 @@
  * @module dsh-echo-memory/migrate
  */
 
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -22,16 +22,14 @@ export interface MemoryMigration {
   readonly up: (record: unknown) => unknown
 }
 
-/** v1→v2：补 embedding 字段占位（旧库无向量，回退到 BM25）。 */
+/** v1→v2：补 embedding 字段占位（旧库无向量，回退到 BM25）。纯函数，不原地改旧对象。 */
 export const MEMORY_MIGRATIONS: readonly MemoryMigration[] = Object.freeze([
   {
     from: 1,
     up: (record: unknown) => {
       const r = record as Record<string, unknown>
-      // 旧记录无 embedding，补 undefined 保持校验通过；后台回填会异步补向量
-      if (!('embedding' in r)) r['embedding'] = undefined
-      if (!('embeddingAt' in r)) r['embeddingAt'] = undefined
-      return r
+      // 旧记录缺 embedding 时保持缺失（zod optional），仅做浅拷贝避免原地污染；JSON.stringify 会丢弃 undefined，无需显式补
+      return { ...r }
     },
   },
 ])
@@ -58,9 +56,17 @@ export async function migrateMemoryFile(
   })
   if (raw === undefined) return false
 
-  const file = JSON.parse(raw) as {
+  let file: {
     readonly unit?: { readonly name?: unknown; readonly version?: unknown }
     readonly tables?: Record<string, Record<string, unknown>>
+  }
+  try {
+    file = JSON.parse(raw) as {
+      readonly unit?: { readonly name?: unknown; readonly version?: unknown }
+      readonly tables?: Record<string, Record<string, unknown>>
+    }
+  } catch (error) {
+    throw new Error(`dsh-echo-memory: memory file is corrupted (invalid JSON): ${String(error)}`)
   }
   const fileVersion = file.unit?.version ?? 0
   if (typeof fileVersion !== 'number' || fileVersion < 0) {
@@ -103,7 +109,8 @@ export async function migrateMemoryFile(
     )
   }
 
-  // 原子替换写回：临时文件 + rename（与 json 后端同一发布协议）。
+  // 原子替换写回：确保目录存在后临时文件 + rename（与 json 后端同一发布协议）。
+  await mkdir(root, { recursive: true })
   const tmp = join(root, `.${randomUUID()}.migrate.tmp`)
   const next = { ...file, unit: { ...file.unit, version: expectedVersion } }
   const out = JSON.stringify(next, null, 2)

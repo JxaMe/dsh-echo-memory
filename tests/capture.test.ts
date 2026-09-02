@@ -78,14 +78,12 @@ test('命中句式：提取句式后的内容并按会话 cwd 归属', async () 
   assert.equal(feed.take('session-1').length, 0)
 })
 
-test('句式后无内容时保存整句', async () => {
+test('句式后无内容时不捕获', async () => {
   const { handler, store } = makeHandler()
   handler(session(undefined), userEvent('请记住'))
   await settle()
-  const hit = store.search({ query: '请记住' })[0]
-  assert.ok(hit)
-  assert.equal(hit.record.content, '请记住')
-  assert.equal(hit.record.workspace, '*')
+  assert.equal(store.search({}).length, 0)
+  assert.equal(store.search({ query: '请记住' }).length, 0)
 })
 
 test('未命中句式与插件来源不捕获（feed 无入队）', async () => {

@@ -12,7 +12,7 @@ import type { MemoryKind } from './domain.js'
 import type { MemoryStore, SearchHit } from './store.js'
 import { tagSuffix } from './store.js'
 import type { DeletionMode } from './settings.js'
-import { expandWithLocalSynonyms, scorePlainBM25, tokenizeForRecall } from './scoring.js'
+import { searchRecall } from './scoring.js'
 
 /** 记忆类型枚举（模型可见的字符串字面量）。 */
 const KIND_OPTIONS: readonly MemoryKind[] = [...MEMORY_KINDS]
@@ -118,7 +118,15 @@ export function memoryTools(
           : `已保存记忆（id=${value.id}, workspace=${value.workspace}）`,
       }],
     },
+    isConcurrencySafe: () => false,
     async execute(args, exec) {
+      const rawContent = args.content ?? ''
+      if (rawContent.trim().length === 0) {
+        throw new TypeError('dsh-echo-memory: memory content must contain a non-whitespace character')
+      }
+      if (args.workspace !== undefined && args.workspace.trim() === '*') {
+        // 显式 '*' 视为全局，与 workspaceOf 的落盘一致
+      }
       const workspace = workspaceOf(args, exec, defaultWorkspace)
       const outcome = await store.save({
         workspace,
@@ -206,16 +214,13 @@ export function memoryTools(
         const filtered = args.kind === undefined ? hits : hits.filter(h => h.record.kind === args.kind)
         return { items: filtered.map(toOutputItem) }
       }
-      // 未指定 workspace：跨全部工作区搜（工具侧不限制全局，全量召回），复用统一 BM25
+      // 未指定 workspace：跨全部工作区统一用 BM25F（与指定 workspace 同体系，避免分数不一致）
       const all = store.allLive()
       if (all.length === 0) return { items: [] }
       const candidates = args.kind === undefined ? all : all.filter(r => r.kind === args.kind)
       if (candidates.length === 0) return { items: [] }
-      const baseTokens = tokenizeForRecall(q)
-      const tokens = expandWithLocalSynonyms(baseTokens)
-      const now = Date.now()
-      const hits = scorePlainBM25(candidates, tokens, now)
-      return { items: hits.slice(0, limit).map(toOutputItem) }
+      const hits = searchRecall(candidates, q, Date.now(), limit)
+      return { items: hits.map(toOutputItem) }
     },
   })
 
@@ -244,6 +249,7 @@ export function memoryTools(
         text: value.removed ? '记忆已删除。' : '未找到该记忆（可能已被删除）。',
       }],
     },
+    isConcurrencySafe: () => false,
     async execute(args) {
       return { removed: await store.forget(args.id, readDeletionMode()) }
     },
@@ -272,6 +278,7 @@ export function memoryTools(
         text: value.restored ? '记忆已恢复。' : '未找到该墓碑记忆（可能已彻底删除或未被删除）。',
       }],
     },
+    isConcurrencySafe: () => false,
     async execute(args) {
       return { restored: await store.restore(args.id) }
     },
