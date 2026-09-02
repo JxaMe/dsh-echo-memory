@@ -144,6 +144,23 @@ test('decideRecall：相关时注入并计 stats', async () => {
   assert.match(first?.type === 'text' ? first.text : '', /相关记忆/)
 })
 
+test('decideRecall：敏感记忆自动召回排除（仅手动可查）', async () => {
+  const store = makeStore()
+  await store.save({ workspace: '/w/a', content: 'VPS（RackNerd）密码 secret123 IP 192.236.246.90', tags: ['vps'], sensitive: true }, 1000)
+  await store.save({ workspace: '/w/a', content: '部署走 systemd 详细步骤', tags: ['deploy'], sensitive: false }, 1001)
+  const ag = agent('/w/a')
+  // 即使 query 命中的就是敏感词，自动召回也不带它
+  let res = decideRecall(store, () => ({ enabled: true, limit: 8, maxChars: 1500 }), ag, [userMsg('vps 密码 secret123')])
+  assert.equal(res, undefined)
+  // 非敏感记忆照常召回
+  res = decideRecall(store, () => ({ enabled: true, limit: 8, maxChars: 1500 }), ag, [userMsg('systemd 怎么部署')])
+  assert.ok(res)
+  assert.match(res!.text, /部署走 systemd/)
+  // 手动 memory_search 路径仍可查（store.searchForRecall 不含过滤，过滤在 decideRecall 层）
+  const hits = store.searchForRecall('/w/a', 'vps 密码 secret123', 8, 2000)
+  assert.ok(hits.some(h => h.record.sensitive === true))
+})
+
 test('decideRecall：limit 与 maxChars 生效', async () => {
   const store = makeStore()
   for (let i = 0; i < 5; i++) {

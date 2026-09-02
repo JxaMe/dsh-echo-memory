@@ -184,6 +184,23 @@ test('save：空 content 返回 400；正常返回 200 并透传 save 结果', a
   assert.equal(saveCall?.workspace, '*') // 缺省工作区
 })
 
+test('save/update：sensitive 字段透传', async () => {
+  const base = stubDeps()
+  const { registrations } = mockCtx(base.deps)
+  const save = registrations.find(r => r.path === '/api/dsh-echo-memory/save')!
+  const res = fakeRes()
+  await save.handler(fakeReq('/api/dsh-echo-memory/save', {}, [JSON.stringify({ content: 'API key sk_x', sensitive: true })]), res.res)
+  assert.equal(res.out.status, 200)
+  const saveCall = (base.calls.save?.[0] as unknown[] | undefined)?.[0] as { sensitive?: boolean } | undefined
+  assert.equal(saveCall?.sensitive, true)
+
+  const update = registrations.find(r => r.path === '/api/dsh-echo-memory/update')!
+  const res2 = fakeRes()
+  await update.handler(fakeReq('/api/dsh-echo-memory/update', {}, [JSON.stringify({ id: 'mem-1', sensitive: false })]), res2.res)
+  assert.equal(res2.out.status, 200)
+  assert.deepEqual(base.calls.updateMemory?.[0], ['mem-1', { sensitive: false }])
+})
+
 test('forget：缺 id 返回 400；正常返回 200', async () => {
   const base = stubDeps()
   const { registrations } = mockCtx(base.deps)

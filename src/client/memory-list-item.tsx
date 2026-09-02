@@ -17,6 +17,7 @@ export function MemoryListItem(props: {
   onStartEdit: () => void
   onDelete: () => void
   onCopy: () => void
+  onToggleSensitive: () => void
 }) {
   const { r, isEditing, draft } = props
   return (
@@ -32,6 +33,7 @@ export function MemoryListItem(props: {
         <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l2)', padding: '0 5px', borderRadius: '999px', lineHeight: '16px' }}>{r.kind}</span>
         <span style={{ fontSize: '11px', color: r.workspace === '*' ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l2)', padding: '0 5px', borderRadius: '999px', lineHeight: '16px', background: r.workspace === '*' ? 'rgba(99,102,241,0.08)' : 'transparent' }}>{r.workspace === '*' ? '全局' : (r.workspace.split('/').pop() || '项目')}</span>
         <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' }}>{formatTime(r.updatedAt)}</span>
+        {r.sensitive && <span style={{ fontSize: '11px', color: 'var(--dsw-alias-state-error-primary)', border: '1px solid var(--dsw-alias-state-error-primary)', padding: '0 5px', borderRadius: '999px', lineHeight: '16px', background: 'rgba(236,19,19,0.08)' }}>🔒 敏感</span>}
         {r.tags.length > 0 && <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' }}>#{r.tags[0]}</span>}
         {r.strength > 1 && <span style={{ fontSize: '10px', color: 'var(--dsw-alias-label-tertiary)' }}>×{r.strength}</span>}
       </div>
@@ -91,6 +93,14 @@ export function MemoryListItem(props: {
               style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
             >
               🗑 删除
+            </button>
+            <button
+              type="button"
+              onClick={props.onToggleSensitive}
+              title={r.sensitive ? '取消敏感标记' : '标记为敏感（自动召回排除）'}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: r.sensitive ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
+            >
+              {r.sensitive ? '🔓 取消敏感' : '🔒 标记敏感'}
             </button>
             <button
               type="button"

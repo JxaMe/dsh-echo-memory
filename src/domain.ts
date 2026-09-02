@@ -54,6 +54,8 @@ export interface MemoryRecord {
   readonly updatedAt: number
   /** 墓碑删除时间（Unix epoch 毫秒）；存在即已标记删除（检索/注入不可见，purge 时物理清除）。 */
   readonly deletedAt?: number | undefined
+  /** 敏感标记：账号/密码/API key 等凭据类记忆置 true，自动召回排除（手动面板/memory_search 仍可查）。缺省 false。 */
+  readonly sensitive?: boolean | undefined
   /** 语义向量（DeepSeek embedding，1024 维示例）；无 Key 或旧版本时 undefined，回退到 BM25。 */
   readonly embedding?: readonly number[] | undefined
   /** 向量生成时间（用于判断是否需重算）。 */
@@ -75,6 +77,7 @@ export const memoryRecordSchema = z.object({
   updatedAt: nonNegativeSafeInteger,
   // 可选字段：旧数据无此键，解读为未删除；不 bump 领域版本（向后兼容）。
   deletedAt: nonNegativeSafeInteger.optional(),
+  sensitive: z.boolean().optional(),
   embedding: z.array(z.number()).optional(),
   embeddingAt: nonNegativeSafeInteger.optional(),
 }).superRefine((record, ctx) => {

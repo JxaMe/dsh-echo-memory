@@ -14,10 +14,10 @@ export interface RouteDeps {
   listDeleted: (limit: number) => unknown
   restore: (id: string) => Promise<boolean>
   purgeOne: (id: string) => Promise<boolean>
-  updateMemory: (id: string, patch: { content?: string; tags?: readonly string[] }) => Promise<boolean>
+  updateMemory: (id: string, patch: { content?: string; tags?: readonly string[]; sensitive?: boolean }) => Promise<boolean>
   listRecent: (limit: number) => unknown
   searchRecent: (query: string, limit: number) => unknown
-  save: (input: { content: string; tags?: string[]; kind?: import('./domain.js').MemoryKind; workspace: string }) => Promise<unknown>
+  save: (input: { content: string; tags?: string[]; kind?: import('./domain.js').MemoryKind; workspace: string; sensitive?: boolean }) => Promise<unknown>
   forget: (id: string) => Promise<boolean>
   storageStatus: () => { recovered: { at: number; backupPath: string } | null }
   defaultWorkspace: string
@@ -118,15 +118,17 @@ export function registerMemoryRoutes(ctx: Context, deps: RouteDeps): void {
       return { purged: await deps.purgeOne(id) }
     })
     route('/api/dsh-echo-memory/update', async (req) => {
-      const body = await readJsonBody(req) as { id?: unknown; content?: unknown; tags?: unknown }
+      const body = await readJsonBody(req) as { id?: unknown; content?: unknown; tags?: unknown; sensitive?: unknown }
       const id = typeof body.id === 'string' ? body.id : ''
       if (!id) throw badRequest('missing id')
       const content = typeof body.content === 'string' ? body.content : undefined
       const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
-      if (content === undefined && tags === undefined) throw badRequest('empty patch')
-      const patch: { content?: string; tags?: readonly string[] } = {}
+      const sensitive = typeof body.sensitive === 'boolean' ? body.sensitive : undefined
+      if (content === undefined && tags === undefined && sensitive === undefined) throw badRequest('empty patch')
+      const patch: { content?: string; tags?: readonly string[]; sensitive?: boolean } = {}
       if (content !== undefined) patch.content = content
       if (tags !== undefined) patch.tags = tags
+      if (sensitive !== undefined) patch.sensitive = sensitive
       return { updated: await deps.updateMemory(id, patch) }
     })
     route('/api/dsh-echo-memory/last-recall', async () => deps.getLastRecall())
@@ -144,7 +146,7 @@ export function registerMemoryRoutes(ctx: Context, deps: RouteDeps): void {
       return { items }
     })
     route('/api/dsh-echo-memory/save', async (req) => {
-      const body = await readJsonBody(req) as { content?: unknown; tags?: unknown; kind?: unknown; workspace?: unknown }
+      const body = await readJsonBody(req) as { content?: unknown; tags?: unknown; kind?: unknown; workspace?: unknown; sensitive?: unknown }
       const content = typeof body.content === 'string' ? body.content : ''
       if (content.trim().length === 0) throw badRequest('content must contain non-whitespace')
       const tags = Array.isArray(body.tags) ? (body.tags as string[]) : undefined
@@ -152,9 +154,11 @@ export function registerMemoryRoutes(ctx: Context, deps: RouteDeps): void {
       const kind = typeof body.kind === 'string' ? body.kind as import('./domain.js').MemoryKind : undefined
       if (kind !== undefined && !['fact', 'preference', 'project', 'session'].includes(kind)) throw badRequest('invalid kind')
       const workspace = typeof body.workspace === 'string' ? body.workspace : deps.defaultWorkspace
-      const input: { content: string; workspace: string; tags?: string[]; kind?: import('./domain.js').MemoryKind } = { content, workspace }
+      const sensitive = typeof body.sensitive === 'boolean' ? body.sensitive : undefined
+      const input: { content: string; workspace: string; tags?: string[]; kind?: import('./domain.js').MemoryKind; sensitive?: boolean } = { content, workspace }
       if (tags !== undefined) input.tags = tags
       if (kind !== undefined) input.kind = kind
+      if (sensitive !== undefined) input.sensitive = sensitive
       return deps.save(input)
     })
     route('/api/dsh-echo-memory/forget', async (req) => {

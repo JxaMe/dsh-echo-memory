@@ -39,6 +39,8 @@ export interface SaveInput {
   readonly tags?: readonly string[] | undefined
   /** 写入来源，缺省 `agent`。 */
   readonly source?: MemorySource | undefined
+  /** 敏感标记（凭据类记忆），缺省 false。 */
+  readonly sensitive?: boolean | undefined
 }
 
 /** 一次保存的结果；existed=true 表示强化了既有记录而非新建。 */
@@ -187,11 +189,13 @@ export class MemoryStore {
       const workspace = input.workspace.trim() === '' ? GLOBAL_WORKSPACE : input.workspace.trim()
       const tags = normalizeTags(input.tags, this.limits.tagsMax)
       const source = input.source ?? 'agent'
+      const sensitive = input.sensitive ?? false
       for (const [id, record] of this.table.entries()) {
         if (record.deletedAt !== undefined) continue
         if (record.workspace === workspace && record.kind === kind && record.content === content) {
           const next: MemoryRecord = {
             ...record,
+            sensitive,
             strength: record.strength + 1,
             updatedAt: now,
           }
@@ -208,6 +212,7 @@ export class MemoryStore {
         tags,
         strength: 1,
         source,
+        sensitive,
         createdAt: now,
         updatedAt: now,
       }
@@ -285,16 +290,17 @@ export class MemoryStore {
     return this.table.delete(id)
   }
 
-  /** 更新一条记忆的正文/标签（保留 strength/source/时间，刷新 updatedAt）。墓碑不可直接更新。 */
-  async update(id: string, patch: { content?: string; tags?: readonly string[] }, now: number = Date.now()): Promise<boolean> {
+  /** 更新一条记忆的正文/标签/敏感标记（保留 strength/source/时间，刷新 updatedAt）。墓碑不可直接更新。 */
+  async update(id: string, patch: { content?: string; tags?: readonly string[]; sensitive?: boolean, }, now: number = Date.now()): Promise<boolean> {
     const rec = this.table.get(id)
     if (rec === undefined) return false
     if (rec.deletedAt !== undefined) return false
-    if (patch.content === undefined && patch.tags === undefined) return false
+    if (patch.content === undefined && patch.tags === undefined && patch.sensitive === undefined) return false
     const content = patch.content !== undefined ? normalizeContent(patch.content, this.limits.contentMaxChars) : rec.content
     if (content.length === 0) return false
     const tags = patch.tags !== undefined ? normalizeTags(patch.tags, this.limits.tagsMax) : rec.tags
-    const next: MemoryRecord = { ...rec, content, tags, updatedAt: now }
+    const sensitive = patch.sensitive === undefined ? rec.sensitive : patch.sensitive
+    const next: MemoryRecord = { ...rec, content, tags, sensitive, updatedAt: now }
     await this.table.put(id, next)
     return true
   }
@@ -335,6 +341,7 @@ export class MemoryStore {
     const candidates: RecallCandidate[] = []
     for (const [, record] of this.table.entries()) {
       if (record.deletedAt !== undefined) continue
+      if (record.sensitive) continue // 敏感记忆不自动注入
       if (now - record.updatedAt > FRESH_WINDOW_MS) continue // 老化：过期记忆退出注入
       if (record.workspace !== workspace && record.workspace !== GLOBAL_WORKSPACE) continue
       const rank = record.strength * recencyFactor(record.updatedAt, now)
