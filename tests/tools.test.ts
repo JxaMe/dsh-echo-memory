@@ -114,19 +114,6 @@ test('execute：save 显式 workspace 覆盖会话', async () => {
   assert.equal(out.workspace, GLOBAL_WORKSPACE)
 })
 
-test('execute：save sensitive 落盘；memory_search 手动仍可查', async () => {
-  const store = makeStore()
-  const tools = memoryTools(store, GLOBAL_WORKSPACE, () => 'tombstone')
-  const save = tools.find(t => t.name === 'memory_save')!
-  const schema = save.parameters.properties as Record<string, { type?: string }>
-  assert.equal(schema.sensitive?.type, 'boolean') // 工具 schema 暴露敏感参数
-  await save.execute({ content: 'API key sk_secret', sensitive: true } as never, execWith('/w'))
-  const search = tools.find(t => t.name === 'memory_search')!
-  const hit = await search.execute({ query: 'sk_secret' } as never, execWith('/w')) as { items: Array<{ content: string }> }
-  assert.equal(hit.items.length, 1) // 手动检索仍返回敏感记忆
-  assert.match(hit.items[0]!.content, /sk_secret/)
-})
-
 test('execute：search 无 query 返回最近记忆；有 query 跨全部 BM25F', async () => {
   const store = makeStore()
   await store.save({ workspace: '/w', content: 'VPS 走 systemd 部署', kind: 'fact', source: 'agent' })

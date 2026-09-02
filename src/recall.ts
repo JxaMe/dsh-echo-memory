@@ -85,7 +85,7 @@ export function decideRecall(
   }
   const workspace = agentWorkspace(agent) ?? GLOBAL_WORKSPACE
   const rawHits = store.searchForRecall(workspace, query, limit)
-  const hits = filterRecallHits(rawHits).filter(hit => !hit.record.sensitive)
+  const hits = filterRecallHits(rawHits)
   if (hits.length === 0) {
     store.recordAssembly(true, false)
     return undefined

@@ -98,10 +98,6 @@ export function memoryTools(
         type: 'string',
         description: '记忆归属工作区（绝对路径）；缺省用当前会话 cwd，未知时用 *',
       },
-      sensitive: {
-        type: 'boolean',
-        description: '敏感标记：账号/密码/API key 等凭据类记忆置 true（自动召回排除，仍可手动检索），缺省 false',
-      },
     },
     output: {
       schema: {
@@ -137,7 +133,6 @@ export function memoryTools(
         content: args.content,
         kind: args.kind,
         tags: args.tags,
-        sensitive: args.sensitive,
         source: 'agent',
       })
       return {

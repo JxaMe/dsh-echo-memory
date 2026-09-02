@@ -203,7 +203,7 @@ export default class MemoryService extends Service {
   }
 
   /** 更新记忆 */
-  updateMemory(id: string, patch: { content?: string; tags?: readonly string[]; sensitive?: boolean }): Promise<boolean> {
+  updateMemory(id: string, patch: { content?: string; tags?: readonly string[] }): Promise<boolean> {
     return this.requireStore().update(id, patch)
   }
 

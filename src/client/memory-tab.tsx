@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { fetchList as fetchMemoryList, forgetMemory, saveMemory, updateMemory, updateSensitive, type MemoryRecord } from './memory-repo.ts'
+import { fetchList as fetchMemoryList, forgetMemory, saveMemory, updateMemory, type MemoryRecord } from './memory-repo.ts'
 import { copyText, splitTitle, type Toast } from './dock-util.ts'
 import { MemoryListItem } from './memory-list-item.tsx'
 
@@ -29,7 +29,6 @@ export function MemoryTab(props: {
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggest, setShowSuggest] = useState(false)
   const [filterScope, setFilterScope] = useState<'all' | 'global' | 'project'>('all')
-  const [quickSensitive, setQuickSensitive] = useState(false)
 
   // 时间文案每分钟刷新一次，否则“刚刚”不会变
   const [, forceTick] = useState(0)
@@ -127,29 +126,15 @@ export function MemoryTab(props: {
     const c = query.trim()
     if (!c) return
     let ok = false
-    try { ok = await saveMemory(c, props.saveWorkspace, quickSensitive) } catch { ok = false }
+    try { ok = await saveMemory(c, props.saveWorkspace) } catch { ok = false }
     if (!ok) {
       props.onToast('保存失败', 'error')
       return
     }
     setQuery('')
-    setQuickSensitive(false)
     props.onToast('已记住 ✅')
     void refreshList()
-  }, [query, props.saveWorkspace, props.onToast, refreshList, quickSensitive])
-
-  /** 切换敏感标记：失败回滚并给反馈（乐观更新失败时恢复原值）。 */
-  const handleToggleSensitive = useCallback(async (id: string, current: boolean) => {
-    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, sensitive: !current } : x)))
-    let ok = false
-    try { ok = await updateSensitive(id, !current) } catch { ok = false }
-    if (!ok) {
-      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, sensitive: current } : x)))
-      props.onToast('标记失败', 'error')
-      return
-    }
-    props.onToast(!current ? '已标记敏感，自动召回将排除 🔒' : '已取消敏感标记')
-  }, [props.onToast])
+  }, [query, props.saveWorkspace, props.onToast, refreshList])
 
   /** 编辑保存：失败保留编辑态并给反馈。 */
   const handleEditSave = useCallback(async (id: string) => {
@@ -291,7 +276,6 @@ export function MemoryTab(props: {
               onStartEdit={() => { setEditingId(r.id); setDraft(r.content) }}
               onDelete={() => void handleDelete(r.id)}
               onCopy={() => void handleCopy(r.content)}
-              onToggleSensitive={() => void handleToggleSensitive(r.id, r.sensitive === true)}
             />
           ))
         })()}
@@ -310,23 +294,6 @@ export function MemoryTab(props: {
           ))}
           {!['*', ...suggestPool.map(r => r.workspace)].includes(props.saveWorkspace) && <option value={props.saveWorkspace}>{props.saveWorkspace.split('/').pop() || props.saveWorkspace}</option>}
         </select>
-        <button
-          type="button"
-          onClick={() => setQuickSensitive((v) => !v)}
-          title={quickSensitive ? '本条将标记为敏感，自动召回排除' : '标记本条为敏感（账号/密码/API key 等）'}
-          style={{
-            padding: '6px 8px',
-            borderRadius: '8px',
-            border: quickSensitive ? '1px solid var(--dsw-alias-state-error-primary)' : '1px solid var(--dsw-alias-border-l2)',
-            background: quickSensitive ? 'rgba(236,19,19,0.12)' : 'var(--dsw-alias-bg-layer-3)',
-            color: quickSensitive ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-tertiary)',
-            fontSize: '12px',
-            cursor: 'pointer',
-            flexShrink: 0,
-          }}
-        >
-          {quickSensitive ? '🔒 敏感' : '🔓 敏感'}
-        </button>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
