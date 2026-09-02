@@ -4,7 +4,7 @@
  *  1. 打开 `memory` 存储领域（storage-domain json 后端，落盘 `$DSH_HOME/storages/memory.json`）；
  *  2. 向 tools 部署全局层注册 memory_save / memory_search / memory_forget / memory_restore / memory_suggest；
  *  3. 注册 systemPrompt 动态上下文（记忆提议提示词，AI 判断是否 memory_suggest）。
- * 同时以 `ctx.memory`（Service）向其他 DSH 插件暴露 save/search/forget。
+ * 对外只走 tools 与 HTTP routes，不提供公开 Service API。
  * @module dsh-echo-memory
  */
 
@@ -16,7 +16,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
-import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
+import type { SaveInput, SaveOutcome, SearchHit } from './store.js'
 import { memoryTools } from './tools.js'
 import { suggestionPromptText } from './prompt.js'
 import { createRecallMessage, decideRecall, extractQuery, isRecallMessage } from './recall.js'
@@ -49,15 +49,6 @@ export interface Config {
   /** 删除记忆的行为模式（默认墓碑机制）。 */
   readonly deletionMode: DeletionMode
 }
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    /** dsh-echo-memory 提供的能力（供其他 DSH 插件消费）。 */
-    memory: MemoryService
-  }
-}
-
-
 
 /** dsh-echo-memory 插件本体：记忆 Service + 工具 + 注入 + 召回 + 建议的装配。 */
 export default class MemoryService extends Service {
@@ -135,81 +126,48 @@ export default class MemoryService extends Service {
     )
   }
 
-  /** 存储恢复状态（供 client Dock 展示一次性提示）。 */
-  storageStatus(): { recovered: { at: number; backupPath: string } | null } {
+  private storageStatus(): { recovered: { at: number; backupPath: string } | null } {
     return { recovered: this.recovery }
   }
 
-  /**
-   * 保存一条记忆（与 memory_save 工具同一入口）。
-   * @param input - 保存输入（见 MemoryStore.save）。
-   */
-  async save(input: SaveInput): Promise<SaveOutcome> {
+  private async save(input: SaveInput): Promise<SaveOutcome> {
     return this.requireStore().save(input)
   }
 
-  /**
-   * 检索记忆（与 memory_search 工具同一入口）。
-   * @param options - 过滤与限量。
-   */
-  search(options: SearchOptions = {}): SearchHit[] {
-    return this.requireStore().search(options)
-  }
-
-  /**
-   * 删除一条记忆（与 memory_forget 工具同一入口，模式现读设置）。
-   * @param id - 记录 id。
-   */
-  forget(id: string): Promise<boolean> {
+  private forget(id: string): Promise<boolean> {
     return this.requireStore().forget(id, this.settingsReader.get().deletionMode)
   }
 
-  /** 恢复一条墓碑记忆（兼容别名 restoreDeleted） */
-  restore(id: string): Promise<boolean> {
+  private restore(id: string): Promise<boolean> {
     return this.requireStore().restore(id)
   }
 
-  /** @deprecated 用 restore */
-  restoreDeleted(id: string): Promise<boolean> {
-    return this.restore(id)
-  }
-
-  /**
-   * 彻底清除全部墓碑记录（浏览器卡片「彻底删除」按钮的后端动作）。
-   * @returns 本次清除的墓碑条数。
-   */
-  purgeTombstones(): Promise<number> {
+  private purgeTombstones(): Promise<number> {
     return this.requireStore().purgeDeleted()
   }
 
-  /** 列出墓碑（回收站） */
-  listDeleted(limit: number = 20): readonly import('./domain.js').MemoryRecord[] {
+  private listDeleted(limit: number = 20): readonly import('./domain.js').MemoryRecord[] {
     return this.requireStore().listDeleted(limit)
   }
 
-  /** 单条墓碑彻底删除 */
-  purgeOne(id: string): Promise<boolean> {
+  private purgeOne(id: string): Promise<boolean> {
     return this.requireStore().purgeOne(id)
   }
 
-  /** 更新记忆 */
-  updateMemory(id: string, patch: { content?: string; tags?: readonly string[] }): Promise<boolean> {
+  private updateMemory(id: string, patch: { content?: string; tags?: readonly string[] }): Promise<boolean> {
     return this.requireStore().update(id, patch)
   }
 
-  /** 最近活跃记忆（供 Dock 纯管理面板） */
-  listRecent(limit: number = 20): readonly import('./domain.js').MemoryRecord[] {
+  private listRecent(limit: number = 20): readonly import('./domain.js').MemoryRecord[] {
     return this.requireStore().listRecent(limit)
   }
 
-  /** 搜索（供 Dock 搜索） */
-  searchRecent(query: string, limit: number = 20): readonly import('./store.js').SearchHit[] {
+  private searchRecent(query: string, limit: number = 20): readonly import('./store.js').SearchHit[] {
     if (query.trim().length === 0) return this.listRecent(limit).map(r => ({ record: r, score: 0 }))
     return this.requireStore().search({ query, limit })
   }
 
-  /** 运行期统计（浏览器卡片展示）：注入次数/命中数 + 活跃记忆条数。 */
-  memoryStats(): { readonly injections: { readonly requests: number; readonly withContent: number }; readonly memories: number } {
+  private memoryStats(): { readonly injections: { readonly requests: number; readonly withContent: number }; readonly memories: number } {
     const store = this.requireStore()
     return { injections: store.injectionStats, memories: store.liveCount() }
   }

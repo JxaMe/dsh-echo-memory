@@ -30,14 +30,25 @@ export interface MemoryMigration {
   readonly up: (record: unknown) => unknown
 }
 
-/** v1→v2：补 embedding 字段占位（旧库无向量，回退到 BM25）。纯函数，不原地改旧对象。 */
+/** v1→v2：早期占位迁移（无实际字段变化，保持记录原样）。 */
 export const MEMORY_MIGRATIONS: readonly MemoryMigration[] = Object.freeze([
   {
     from: 1,
     up: (record: unknown) => {
       const r = record as Record<string, unknown>
-      // 旧记录缺 embedding 时保持缺失（zod optional），仅做浅拷贝避免原地污染；JSON.stringify 会丢弃 undefined，无需显式补
       return { ...r }
+    },
+  },
+  {
+    from: 2,
+    up: (record: unknown) => {
+      const r = record as Record<string, unknown>
+      const source = r.source === 'auto' ? 'agent' : r.source
+      // 移除向量/嵌入占位字段（当前纯本地 BM25F，不再维护向量数据）
+      const { embedding: _embedding, embeddingAt: _embeddingAt, ...rest } = r
+      void _embedding
+      void _embeddingAt
+      return { ...rest, source }
     },
   },
 ])

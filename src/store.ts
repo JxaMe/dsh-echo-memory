@@ -156,7 +156,7 @@ export class MemoryStore {
     return out
   }
 
-  /** 所有活记录（不分工作区），供后台向量回填用。 */
+  /** 所有活记录（不分工作区），供混合/全局检索用。 */
   allLive(): MemoryRecord[] {
     const out: MemoryRecord[] = []
     for (const [, record] of this.table.entries()) {

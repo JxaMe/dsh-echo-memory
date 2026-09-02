@@ -87,6 +87,24 @@ test('有迁移链：逐级升级记录并原子写回，再次调用幂等', as
     await rm(dir, { recursive: true, force: true })
   }
 })
+test('v2→v3：移除向量字段并把旧 auto 来源归一为 agent', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
+  try {
+    await writeFile(join(dir, 'memory.json'), file(2, {
+      a: { id: 'a', source: 'auto', content: '旧自动捕获', embedding: [0.1, 0.2], embeddingAt: 1000 },
+      b: { id: 'b', source: 'agent', content: '普通保存' },
+    }))
+    assert.equal(await migrateMemoryFile(dir, 3), true)
+    const after = JSON.parse(await readFile(join(dir, 'memory.json'), 'utf8'))
+    assert.equal(after.unit.version, 3)
+    assert.equal(after.tables.memories.a.source, 'agent')
+    assert.equal(after.tables.memories.b.source, 'agent')
+    assert.ok(!('embedding' in after.tables.memories.a))
+    assert.ok(!('embeddingAt' in after.tables.memories.a))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 // ---------- 数据损坏自愈 ----------
 
 test('损坏 JSON：ensure 隔离备份并返回 recovered-corrupt，原文件被移走可建空库', async () => {

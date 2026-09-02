@@ -17,7 +17,6 @@ import type { MemoryCardFace, MemoryCardField, MemoryCardFieldState, MemoryCardS
 import type { MemoryCardTextField } from './card-controller.ts'
 import type { DeletionMode } from '../settings.ts'
 import type { MemoryKey } from './locales.ts'
-import { MemoryDockPreview, ensureDockStyles } from './MemoryDock.tsx'
 import { copyText, formatTime } from './dock-util.ts'
 import { elephantImage } from './elephantImage.ts'
 import { MemoryBooleanField, MemoryChoiceField, MemoryTextField } from './card-fields.tsx'
@@ -64,7 +63,6 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
   const [editingContent, setEditingContent] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   ensureCardStyles()
-  ensureDockStyles()
   // 展开时拉取一次运行期统计与回收站（重复展开会再拉，数据保鲜）。
   useEffect(() => {
     if (open) {
@@ -297,13 +295,6 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                               </>
                             )
                             : null}
-                  </div>
-                  <div style={{ marginTop: '12px', borderTop: '1px dashed var(--dsw-alias-border-l2)', paddingTop: '12px' }}>
-                    <div className="dshm-head" style={{ marginBottom: '6px' }}>
-                      <span className="dshm-label">Dock 预览（瞬态，命中才显示）</span>
-                      <span className="dshm-badge">Preview</span>
-                    </div>
-                    <MemoryDockPreview />
                   </div>
                 </>
               )
