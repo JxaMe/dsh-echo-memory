@@ -248,6 +248,27 @@ function countOccurrences(text: string, token: string): number {
   return c
 }
 
+/** 短纯字母 token（2 位，如 md）子串误命中率高（如 amd/systemd），需词边界匹配才算命中。 */
+function isShortAlphabeticToken(token: string): boolean {
+  return token.length === 2 && /^[a-z]+$/.test(token)
+}
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+function textContainsToken(text: string, token: string): boolean {
+  if (isShortAlphabeticToken(token)) {
+    return new RegExp(`\\b${escapeRegExp(token)}\\b`).test(text)
+  }
+  return text.includes(token)
+}
+function countTokenOccurrences(text: string, token: string): number {
+  if (isShortAlphabeticToken(token)) {
+    const re = new RegExp(`\\b${escapeRegExp(token)}\\b`, 'g')
+    return (text.match(re) || []).length
+  }
+  return countOccurrences(text, token)
+}
+
 function buildBM25FFieldLenMap(candidates: readonly MemoryRecord[]): {
   titleLen: Map<string, number>; bodyLen: Map<string, number>; tagsLen: Map<string, number>;
   avgTitleLen: number; avgBodyLen: number; avgTagsLen: number
@@ -273,7 +294,7 @@ function buildBM25FIdfMap(tokens: readonly string[], candidates: readonly Memory
     for (const rec of candidates) {
       const { title, body } = splitTitleRaw(rec.content)
       const lowerTitle = title.toLowerCase(), lowerBody = body.toLowerCase(), lowerTags = rec.tags.join(' ').toLowerCase()
-      const hit = lowerTitle.includes(tok) || lowerBody.includes(tok) || lowerTags.includes(tok) || rec.tags.some(t => t === tok || t.startsWith(tok))
+      const hit = textContainsToken(lowerTitle, tok) || textContainsToken(lowerBody, tok) || textContainsToken(lowerTags, tok) || rec.tags.some(t => t === tok || t.startsWith(tok))
       if (hit) c += 1
     }
     df.set(tok, c)
@@ -304,19 +325,18 @@ function bm25FForRecord(
   for (const tok of tokens) {
     const curIdf = idf.get(tok) ?? 0
     if (curIdf === 0) continue
-    // per-field TF
+    // per-field TF（短纯字母 token 用词边界，避免 md 命中 amd/systemd）
     let tfTitle = 0, tfBody = 0, tfTags = 0
-    // title/body: substring count
-    tfTitle = countOccurrences(lowerTitle, tok)
-    tfBody = countOccurrences(lowerBody, tok)
+    tfTitle = countTokenOccurrences(lowerTitle, tok)
+    tfBody = countTokenOccurrences(lowerBody, tok)
     // tags: exact/prefix counts (tags are already lower)
     if (record.tags.includes(tok)) tfTags += 1
     // prefix matches (≥2 chars)
     if (tok.length >= 2) {
       for (const tag of record.tags) if (tag.startsWith(tok) && tag !== tok) tfTags += 0.5
     }
-    // also substring in tags text
-    const tagOcc = countOccurrences(lowerTagsText, tok)
+    // also substring in tags text（短 token 同样词边界）
+    const tagOcc = countTokenOccurrences(lowerTagsText, tok)
     if (tagOcc > 0) tfTags = Math.max(tfTags, tagOcc * 0.5)
 
     if (tfTitle === 0 && tfBody === 0 && tfTags === 0) continue

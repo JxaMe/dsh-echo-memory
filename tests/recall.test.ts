@@ -199,3 +199,14 @@ test('decideRecall：用户问 vps 时注入完整记忆（含凭据原文供使
   const bad = decideRecall(store, () => ({ enabled: true, limit: 8, maxChars: 1500 }), ag, [userMsg('2mPfSj03Eq9Z84hAlT 是什么')])
   assert.equal(bad, undefined) // 纯凭据提问不注入
 })
+
+test('searchRecall：短字母 token（如 md）不以子串误命中 amd/systemd', async () => {
+  const store = makeStore()
+  await store.save({ workspace: '/w', content: '系统信息:Ubuntu 26.04 LTS，硬件 AMD Ryzen 5 5600H', tags: [] }, 1000)
+  await store.save({ workspace: '/w', content: 'VPS（RackNerd）：systemd 服务 hysteria', tags: ['vps'] }, 1001)
+  // 来自 AGENTS.MD 文件名的 md 不该命中 amd/systemd
+  assert.equal(store.searchForRecall('/w', '开发新功能前确认能否用现有 7 键 + 单表 + 纯本地 BM25F 解决，这条加进项目AGENTS.MD中', 8, 2000).length, 0)
+  assert.equal(store.searchForRecall('/w', 'md', 8, 2000).length, 0)
+  // 语义 token 仍正常
+  assert.equal(store.searchForRecall('/w', 'amd 怎么配', 8, 2000).length, 1)
+})
