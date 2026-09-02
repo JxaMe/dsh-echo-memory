@@ -10,14 +10,8 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { DeletionMode } from '../settings.ts'
 import type { MemorySettings } from '../settings.ts'
-import {
-  booleanDraft,
-  numberDraft,
-  parseNumberField,
-  parsePatternsField,
-  patternsDraft,
-  type FieldWrite,
-} from './card-util.ts'
+import { isRecord, parseField, projectCardState, type StagedEdit } from './card-projection.ts'
+import type { FieldWrite } from './card-util.ts'
 
 /** 卡片可编辑的字段名。 */
 export type MemoryCardField =
@@ -102,6 +96,12 @@ export type MemoryStatsState =
   | { phase: 'done'; data: MemoryStatsPayload }
   | { phase: 'failed' }
 
+/** 回收站单项动作（恢复/彻底删除/编辑）的瞬时反馈；文案键在 locales（controller 不持 i18n）。 */
+export type MemoryActionFeedback =
+  | { kind: 'ok'; message: 'restored' | 'purgedOne' | 'updated' }
+  | { kind: 'error'; message: 'restoreFailed' | 'purgeOneFailed' | 'updateFailed' }
+  | null
+
 /** 卡片的完整渲染状态。 */
 export interface MemoryCardState {
   /** 命名空间未受服务时卡片不渲染控件。 */
@@ -131,6 +131,8 @@ export interface MemoryCardState {
   recycle: RecycleState
   /** 运行期统计（卡片展开时拉取）。 */
   stats: MemoryStatsState
+  /** 回收站单项动作（恢复/彻底删除/编辑）的瞬时反馈，2.5s 后自动清除。 */
+  actionFeedback: MemoryActionFeedback
 }
 
 /** 注册侧 inject 面：hooks compartment（renderer 绑定 useMemoryCard）+ 表单动作。 */
@@ -161,16 +163,9 @@ export interface MemoryCardFace {
   restoreOne: (id: string) => Promise<void>
   /** 单条墓碑彻底删除。 */
   purgeOne: (id: string) => Promise<void>
-  /** 更新一条记忆。 */
-  updateOne: (id: string, patch: { content?: string }) => Promise<void>
+  /** 更新一条记忆；返回是否成功（调用方据此决定是否退出编辑态）。 */
+  updateOne: (id: string, patch: { content?: string }) => Promise<boolean>
 }
-
-/** 一条暂存编辑。 */
-type StagedEdit =
-  | { kind: 'text'; text: string }
-  | { kind: 'bool'; checked: boolean }
-  | { kind: 'choice'; value: DeletionMode }
-  | { kind: 'clear' }
 
 function initial(): MemoryCardState {
   return {
@@ -191,29 +186,8 @@ function initial(): MemoryCardState {
     purge: { phase: 'idle' },
     recycle: { phase: 'idle' },
     stats: { phase: 'idle' },
+    actionFeedback: null,
   }
-}
-
-/** 文本字段的解析/格式化分派表：新增文本字段只改这一处（布尔字段无文本草稿）。 */
-const textFieldCodecs: Record<MemoryCardTextField, {
-  parse(text: string): FieldWrite | undefined
-  format(value: unknown): string
-}> = {
-  capturePatterns: { parse: parsePatternsField, format: patternsDraft },
-  injectLimit: { parse: parseNumberField, format: numberDraft },
-  injectMaxChars: { parse: parseNumberField, format: numberDraft },
-  captureMaxPerSession: { parse: parseNumberField, format: numberDraft },
-}
-
-/** 文本字段：草稿 → 写入计划（undefined = 非法；布尔/选项字段永不进入文本解析）。 */
-function parseField(field: MemoryCardField, text: string): FieldWrite | undefined {
-  if (field === 'injectEnabled' || field === 'captureEnabled' || field === 'deletionMode') return undefined
-  return textFieldCodecs[field].parse(text)
-}
-
-/** 文本字段：存储值 → 草稿文本。 */
-function formatField(field: MemoryCardTextField, value: unknown): string {
-  return textFieldCodecs[field].format(value)
 }
 
 /** 记忆设置控制器：scope → 快照 store + 动作。 */
@@ -227,6 +201,7 @@ export class MemoryCardController {
   private failed = false
   private justSaved = false
   private justSavedTimer: ReturnType<typeof setTimeout> | undefined
+  private actionTimer: ReturnType<typeof setTimeout> | undefined
 
   /**
    * @param scope - 绑定在 `memory` 命名空间上的设置 scope。
@@ -330,18 +305,40 @@ export class MemoryCardController {
   }
 
   private async restoreOne(id: string): Promise<void> {
-    try { await this.restoreOneFn(id) } catch {}
+    let ok = false
+    try { ok = await this.restoreOneFn(id) } catch { ok = false }
+    this.setActionFeedback(ok ? { kind: 'ok', message: 'restored' } : { kind: 'error', message: 'restoreFailed' })
     await this.refreshRecycle()
   }
 
   private async purgeOne(id: string): Promise<void> {
-    try { await this.purgeOneFn(id) } catch {}
+    let ok = false
+    try { ok = await this.purgeOneFn(id) } catch { ok = false }
+    this.setActionFeedback(ok ? { kind: 'ok', message: 'purgedOne' } : { kind: 'error', message: 'purgeOneFailed' })
     await this.refreshRecycle()
   }
 
-  private async updateOne(id: string, patch: { content?: string }): Promise<void> {
-    try { await this.updateOneFn(id, patch) } catch {}
+  private async updateOne(id: string, patch: { content?: string }): Promise<boolean> {
+    let ok = false
+    try { ok = await this.updateOneFn(id, patch) } catch { ok = false }
+    this.setActionFeedback(ok ? { kind: 'ok', message: 'updated' } : { kind: 'error', message: 'updateFailed' })
     await this.refreshRecycle()
+    return ok
+  }
+
+  /** 投影回收站单项动作反馈；2.5s 后自动清除，避免残留。 */
+  private setActionFeedback(feedback: NonNullable<MemoryActionFeedback> | null): void {
+    if (this.actionTimer !== undefined) {
+      clearTimeout(this.actionTimer)
+      this.actionTimer = undefined
+    }
+    this.store.update((draft) => { draft.actionFeedback = feedback })
+    if (feedback !== null) {
+      this.actionTimer = setTimeout(() => {
+        this.actionTimer = undefined
+        this.store.update((draft) => { draft.actionFeedback = null })
+      }, 2500)
+    }
   }
 
   /** 拉取运行期统计（卡片展开时触发；失败显示失败态，不打断卡片）。 */
@@ -452,102 +449,23 @@ export class MemoryCardController {
   }
 
   private projection(availableOverride?: boolean, writableOverride?: boolean): MemoryCardState {
-    const available = availableOverride ?? this.store.getSnapshot().available
-    const writable = writableOverride ?? this.store.getSnapshot().writable
-    let invalid = false
-    for (const [field, edit] of this.drafts) {
-      if (edit.kind !== 'text') continue
-      if (parseField(field, edit.text) === undefined) invalid = true
-    }
-    return {
+    const current = this.store.getSnapshot()
+    const available = availableOverride ?? current.available
+    const writable = writableOverride ?? current.writable
+    return projectCardState({
+      drafts: this.drafts,
+      values: this.values,
+      base: this.base,
+      user: this.user,
       available,
       writable,
-      dirty: this.drafts.size > 0,
-      invalid,
       saving: this.saving,
       failed: this.failed,
       justSaved: this.justSaved,
-      injectEnabled: this.booleanState('injectEnabled'),
-      injectLimit: this.textState('injectLimit'),
-      injectMaxChars: this.textState('injectMaxChars'),
-      captureEnabled: this.booleanState('captureEnabled'),
-      capturePatterns: this.textState('capturePatterns'),
-      captureMaxPerSession: this.textState('captureMaxPerSession'),
-      deletionMode: this.choiceState('deletionMode'),
-      purge: this.store.getSnapshot().purge,
-      recycle: this.store.getSnapshot().recycle,
-      stats: this.store.getSnapshot().stats,
-    }
+      purge: current.purge,
+      recycle: current.recycle,
+      stats: current.stats,
+      actionFeedback: current.actionFeedback,
+    })
   }
-
-  private textState(field: MemoryCardTextField): MemoryCardFieldState {
-    const edit = this.drafts.get(field)
-    if (edit !== undefined && edit.kind === 'text') {
-      const write = parseField(field, edit.text)
-      return {
-        text: edit.text,
-        overridden: write !== undefined,
-        invalid: write === undefined,
-      }
-    }
-    if (edit !== undefined && edit.kind === 'clear') {
-      // 清除草稿：渲染回落基准值（组合层优先），预览「重置」结果。
-      return { text: formatField(field, this.fallbackValue(field)), overridden: false, invalid: false }
-    }
-    return {
-      text: formatField(field, this.values?.[field]),
-      overridden: this.isOverridden(field),
-      invalid: false,
-    }
-  }
-
-  private booleanState(field: MemoryCardBooleanField): MemoryCardBooleanState {
-    const edit = this.drafts.get(field)
-    if (edit !== undefined && edit.kind === 'bool') {
-      return { checked: edit.checked, overridden: true }
-    }
-    if (edit !== undefined && edit.kind === 'clear') {
-      return { checked: booleanDraft(this.fallbackValue(field)), overridden: false }
-    }
-    return {
-      checked: booleanDraft(this.values?.[field]),
-      overridden: this.isOverridden(field),
-    }
-  }
-
-  private choiceState(field: MemoryCardChoiceField): MemoryCardChoiceState {
-    const edit = this.drafts.get(field)
-    if (edit !== undefined && edit.kind === 'choice') {
-      return { value: edit.value, overridden: true }
-    }
-    if (edit !== undefined && edit.kind === 'clear') {
-      return { value: choiceDraft(this.fallbackValue(field)), overridden: false }
-    }
-    return {
-      value: choiceDraft(this.values?.[field]),
-      overridden: this.isOverridden(field),
-    }
-  }
-
-  /** 清除草稿时的回落值：组合层 base 优先，其次当前有效值。 */
-  private fallbackValue(field: MemoryCardField): unknown {
-    if (this.base !== undefined && Object.prototype.hasOwnProperty.call(this.base, field)) {
-      return this.base[field]
-    }
-    return this.values?.[field]
-  }
-
-  private isOverridden(field: MemoryCardField): boolean {
-    return this.user !== undefined && Object.prototype.hasOwnProperty.call(this.user, field)
-  }
-}
-
-/** 窄化记录值（base/user 层）。 */
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/** 选项字段：存储值 → 控件值（未知值回落默认 `tombstone`，与新装缺省一致）。 */
-function choiceDraft(value: unknown): DeletionMode {
-  return value === 'purge' ? 'purge' : 'tombstone'
 }

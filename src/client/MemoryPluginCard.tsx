@@ -20,6 +20,8 @@ import type { MemoryKey } from './locales.ts'
 import { MemoryDockPreview, ensureDockStyles } from './MemoryDock.tsx'
 import { formatRelativeTime } from './card-util.ts'
 import { elephantImage } from './elephantImage.ts'
+import { MemoryBooleanField, MemoryChoiceField, MemoryTextField } from './card-fields.tsx'
+import { ensureCardStyles } from './card-styles.ts'
 import pkg from '../../package.json' with { type: 'json' }
 
 /** 卡片组件 props：槽位运行时份额 + locale 份额 + 插槽 inject 面。 */
@@ -28,225 +30,16 @@ export type MemoryPluginCardProps =
   & PropsLocale<'settings.memory'>
   & InjectFace<MemoryCardFace>
 
-/** 注入样式表的元素 id（幂等锚点）。 */
-const STYLE_ID = 'dsh-echo-memory-card-styles'
+/** 回收站单项动作反馈的文案键映射（controller 存 message 码，渲染时才取词）。 */
+const ACTION_FEEDBACK_KEYS = {
+  restored: 'action.feedback.restored',
+  restoreFailed: 'action.feedback.restoreFailed',
+  purgedOne: 'action.feedback.purgedOne',
+  purgeOneFailed: 'action.feedback.purgeOneFailed',
+  updated: 'action.feedback.updated',
+  updateFailed: 'action.feedback.updateFailed',
+} as const satisfies Record<string, MemoryKey>
 
-/**
- * 把卡片样式注入文档头（幂等）：数值逐项对齐官方
- * PluginCard.module.css / fields.module.css，仅类名加 `dshm-` 前缀隔离。
- */
-function ensureCardStyles(): void {
-  if (document.getElementById(STYLE_ID) !== null) return
-  const tag = document.createElement('style')
-  tag.id = STYLE_ID
-  tag.textContent = `
-.dshm-card { list-style: none; border: 1px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-3); transition: border-color .16s, background .16s; }
-.dshm-card:hover { border-color: var(--dsw-alias-label-dimmed); }
-.dshm-cardOpen { background: var(--dsw-alias-bg-layer-2); border-color: var(--dsw-alias-label-dimmed); }
-.dshm-header { width: 100%; appearance: none; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; }
-.dshm-header:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -2px; }
-.dshm-headText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.dshm-name { font-size: 15px; font-weight: 600; line-height: 1.4; color: var(--dsw-alias-label-primary); }
-.dshm-version { font-size: 11px; font-weight: 400; color: var(--dsw-alias-label-tertiary); margin-left: 6px; vertical-align: middle; }
-.dshm-desc { font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
-.dshm-pending { flex: none; border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500; white-space: nowrap; background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-secondary); }
-.dshm-chevron { flex: none; display: inline-flex; color: var(--dsw-alias-label-tertiary); transition: transform .16s; }
-.dshm-chevronOpen { transform: rotate(180deg); }
-.dshm-body { border-top: 1px solid var(--dsw-alias-border-l2); margin: 0 16px; padding-bottom: 8px; }
-.dshm-readOnly { margin: 12px 0 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
-.dshm-field { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; }
-.dshm-field + .dshm-field { border-top: 1px solid var(--dsw-alias-border-l2); }
-.dshm-head { display: flex; align-items: center; gap: 8px; }
-.dshm-label { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; line-height: 1.5; color: var(--dsw-alias-label-primary); }
-.dshm-badge { border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; white-space: nowrap; font-weight: 500; background: var(--dsw-alias-bg-module-platform); color: var(--dsw-alias-label-secondary); }
-.dshm-reset { border: none; background: none; padding: 0; font: inherit; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); cursor: pointer; }
-.dshm-reset:hover:not(:disabled) { color: var(--dsw-alias-label-primary); }
-.dshm-input { height: 34px; padding: 0 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-3); font: inherit; font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-primary); }
-.dshm-input:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); }
-.dshm-input:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; }
-.dshm-inputInvalid { border-color: var(--dsw-alias-label-error); }
-textarea.dshm-input { height: auto; min-height: 72px; padding: 8px 12px; resize: vertical; }
-.dshm-checkbox { width: 16px; height: 16px; margin: 0; accent-color: var(--dsw-alias-brand-primary); }
-.dshm-checkbox:disabled { cursor: default; }
-.dshm-invalid { margin: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-error); }
-.dshm-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-tertiary); }
-.dshm-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 0 4px; border-top: 1px solid var(--dsw-alias-border-l2); }
-.dshm-failed { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-error); }
-.dshm-btn { appearance: none; border: 1px solid transparent; border-radius: 8px; padding: 5px 14px; font: inherit; font-size: 13px; line-height: 1.5; cursor: pointer; }
-.dshm-discard { border-color: var(--dsw-alias-border-l2); background: none; color: var(--dsw-alias-label-secondary); }
-.dshm-discard:hover:not(:disabled) { color: var(--dsw-alias-label-primary); border-color: var(--dsw-alias-label-dimmed); }
-.dshm-save { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-layer-3); }
-.dshm-btn:disabled { opacity: 0.4; cursor: default; }
-.dshm-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
-.dshm-purge { border-top: 1px solid var(--dsw-alias-border-l2); }
-.dshm-purgeRow { display: flex; align-items: center; gap: 12px; }
-.dshm-danger { border-color: var(--dsw-alias-label-error); color: var(--dsw-alias-label-error); background: none; }
-.dshm-danger:hover:not(:disabled) { background: var(--dsw-alias-label-error); color: var(--dsw-alias-bg-layer-3); }
-.dshm-recycle { border-top: 1px solid var(--dsw-alias-border-l2); padding: 12px 0; }
-.dshm-recycleHead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.dshm-recycleTitle { flex: 1; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
-.dshm-recycleList { display: flex; flex-direction: column; gap: 8px; }
-.dshm-recycleItem { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-3); }
-.dshm-recycleContent { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-primary); word-break: break-word; }
-.dshm-recycleMeta { font-size: 11px; color: var(--dsw-alias-label-tertiary); margin-top: 2px; }
-.dshm-recycleActions { display: flex; gap: 6px; flex: none; }
-.dshm-btnSmall { padding: 3px 10px; font-size: 12px; }
-.dshm-progress { height: 6px; border-radius: 999px; background: var(--dsw-alias-bg-module-platform); overflow: hidden; }
-.dshm-progressFill { height: 100%; background: var(--dsw-alias-brand-primary); transition: width .22s; }
-`
-  document.head.appendChild(tag)
-}
-
-/**
- * 字段行的覆盖态头部件：「已覆盖」徽标 +「恢复默认」按钮（对齐官方 fields 布局）。
- */
-function OverrideHead(props: {
-  htmlFor: string
-  label: string
-  overriddenLabel: string
-  resetLabel: string
-  overridden: boolean
-  onReset: () => void
-}) {
-  return (
-    <div className="dshm-head">
-      <label className="dshm-label" htmlFor={props.htmlFor}>{props.label}</label>
-      {props.overridden
-        ? (
-          <>
-            <span className="dshm-badge">{props.overriddenLabel}</span>
-            <button type="button" className="dshm-reset" onClick={props.onReset}>{props.resetLabel}</button>
-          </>
-        )
-        : null}
-    </div>
-  )
-}
-
-/**
- * 渲染一句话字段控件（数字/句式文本，纵向布局对齐官方 ValueField）。
- */
-export function MemoryTextField(props: {
-  t: (key: MemoryKey) => string
-  id: string
-  label: string
-  hint: string
-  state: MemoryCardFieldState
-  field: MemoryCardTextField
-  textarea?: boolean | undefined
-  numeric?: boolean | undefined
-  onEdit: (text: string) => void
-  onReset: (field: MemoryCardField) => void
-}) {
-  const { t, state } = props
-  const inputClass = state.invalid ? 'dshm-input dshm-inputInvalid' : 'dshm-input'
-  const common = {
-    id: props.id,
-    className: inputClass,
-    value: state.text,
-    'aria-invalid': state.invalid,
-    onChange: (event: { target: { value: string } }) => { props.onEdit(event.target.value) },
-  }
-  return (
-    <div className="dshm-field">
-      <OverrideHead
-        htmlFor={props.id}
-        label={props.label}
-        overriddenLabel={t('field.overridden')}
-        resetLabel={t('field.reset')}
-        overridden={state.overridden}
-        onReset={() => { props.onReset(props.field) }}
-      />
-      {props.textarea === true
-        ? <textarea rows={3} {...common} />
-        : <input type="text" inputMode={props.numeric === true ? 'numeric' : undefined} {...common} />}
-      <p className={state.invalid ? 'dshm-invalid' : 'dshm-hint'}>
-        {state.invalid ? t('field.invalidNumber') : props.hint}
-      </p>
-    </div>
-  )
-}
-
-/** 布尔字段行：开关 + 提示（官方无布尔字段先例，沿用 field 纵向结构）。 */
-function MemoryBooleanField(props: {
-  t: (key: MemoryKey) => string
-  id: string
-  label: string
-  hint: string
-  checked: boolean
-  overridden: boolean
-  disabled: boolean
-  onToggle: (checked: boolean) => void
-  onReset: () => void
-}) {
-  const { t } = props
-  return (
-    <div className="dshm-field">
-      <OverrideHead
-        htmlFor={props.id}
-        label={props.label}
-        overriddenLabel={t('field.overridden')}
-        resetLabel={t('field.reset')}
-        overridden={props.overridden}
-        onReset={props.onReset}
-      />
-      <div>
-        <input
-          id={props.id}
-          type="checkbox"
-          className="dshm-checkbox"
-          checked={props.checked}
-          disabled={props.disabled}
-          onChange={(event) => { props.onToggle(event.target.checked) }}
-        />
-      </div>
-      <p className="dshm-hint">{props.hint}</p>
-    </div>
-  )
-}
-
-/** 选项字段行：下拉选择（两个删除模式之一）+ 提示。 */
-function MemoryChoiceField(props: {
-  t: (key: MemoryKey) => string
-  id: string
-  label: string
-  hint: string
-  value: DeletionMode
-  overridden: boolean
-  disabled: boolean
-  options: readonly { value: DeletionMode; label: string }[]
-  onChoose: (value: DeletionMode) => void
-  onReset: () => void
-}) {
-  const { t } = props
-  return (
-    <div className="dshm-field">
-      <OverrideHead
-        htmlFor={props.id}
-        label={props.label}
-        overriddenLabel={t('field.overridden')}
-        resetLabel={t('field.reset')}
-        overridden={props.overridden}
-        onReset={props.onReset}
-      />
-      <select
-        id={props.id}
-        className="dshm-input"
-        value={props.value}
-        disabled={props.disabled}
-        onChange={(event) => {
-          const value = event.target.value
-          if (value === 'tombstone' || value === 'purge') props.onChoose(value)
-        }}
-      >
-        {props.options.map(option => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-      <p className="dshm-hint">{props.hint}</p>
-    </div>
-  )
-}
 
 /** 统计行渲染：注入命中率 + 活跃记忆条数（纯函数）。 */
 function renderStats(t: (key: MemoryKey) => string, data: { readonly injections: { readonly requests: number; readonly withContent: number }; readonly memories: number }): string {
@@ -308,12 +101,13 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
     setEditingId(null)
     setEditingContent('')
   }
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (editingId === null) return
     const c = editingContent.trim()
     if (c.length === 0) return
-    void props.updateOne(editingId, { content: c })
-    cancelEdit()
+    const ok = await props.updateOne(editingId, { content: c })
+    if (ok) cancelEdit()
+    // 失败：保持编辑态与草稿，反馈由 actionFeedback「更新失败」呈现
   }
   const { t } = props
   const state = props.useMemoryCard(snapshot => snapshot)
@@ -529,7 +323,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                                       <div className="dshm-recycleActions">
                                         {editingId === item.id ? (
                                           <>
-                                            <button type="button" className="dshm-btn dshm-btnSmall dshm-save" onClick={saveEdit}>保存</button>
+                                            <button type="button" className="dshm-btn dshm-btnSmall dshm-save" onClick={() => void saveEdit()}>保存</button>
                                             <button type="button" className="dshm-btn dshm-btnSmall" onClick={cancelEdit}>取消</button>
                                           </>
                                         ) : (
@@ -561,6 +355,15 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                 </>
               )
               : null}
+            {state.actionFeedback ? (
+              <p
+                className={state.actionFeedback.kind === 'error' ? 'dshm-failed' : 'dshm-hint'}
+                role="status"
+                style={state.actionFeedback.kind === 'ok' ? { color: 'var(--dsw-alias-brand-primary)' } : undefined}
+              >
+                {t(ACTION_FEEDBACK_KEYS[state.actionFeedback.message])}
+              </p>
+            ) : null}
             <div className="dshm-footer">
               {state.justSaved ? <p className="dshm-hint" role="status" style={{ color: 'var(--dsw-alias-brand-primary)' }}>已保存 ✅</p> : null}
               {state.failed ? <p className="dshm-failed" role="status">{t('status.failed')}</p> : null}

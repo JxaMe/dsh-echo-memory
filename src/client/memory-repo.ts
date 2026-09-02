@@ -3,9 +3,10 @@ export type MemoryRecord = { id: string; content: string; kind: string; tags: re
 export async function fetchList(query: string, limit: number = 20): Promise<MemoryRecord[]> {
   const url = `/api/dsh-echo-memory/list?limit=${limit}${query.trim().length > 0 ? `&q=${encodeURIComponent(query.trim())}` : ''}`
   const res = await fetch(url, { headers: { Accept: 'application/json' } })
-  if (!res.ok) return []
+  if (!res.ok) throw new Error(`list failed HTTP ${res.status}`)
   const data = (await res.json()) as { items: MemoryRecord[] }
-  return Array.isArray(data.items) ? data.items : []
+  if (!Array.isArray(data.items)) throw new Error('list returned malformed payload')
+  return data.items
 }
 
 export async function saveMemory(content: string, workspace: string = '*'): Promise<boolean> {

@@ -8,6 +8,7 @@ type RecallHit = { id: string; kind: string; content: string; tags: readonly str
 type LastRecall = { at: number; query: string; hits: RecallHit[] }
 type RecallHistoryEntry = { at: number; query: string; hits: RecallHit[] }
 type MemoryRecord = { id: string; content: string; kind: string; tags: readonly string[]; strength: number; updatedAt: number; workspace: string }
+type Toast = { text: string; kind: 'ok' | 'error' }
 
 const STORAGE_KEY = 'dshm-dock-pos'
 const DOT_SIZE = 44
@@ -64,17 +65,36 @@ export function GlobalDock() {
   const [activeTab, setActiveTab] = useState<'memory' | 'recall'>('memory')
   const [history, setHistory] = useState<RecallHistoryEntry[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState(false)
+  const [historyReload, setHistoryReload] = useState(0)
   const [isDropOver, setIsDropOver] = useState(false)
   const [isPanelDropOver, setIsPanelDropOver] = useState(false)
-  const [dropToast, setDropToast] = useState<string | null>(null)
+  const [toast, setToast] = useState<Toast | null>(null)
+  const [listError, setListError] = useState(false)
+  const [reloadTick, setReloadTick] = useState(0)
   const [suggestPool, setSuggestPool] = useState<MemoryRecord[]>([])
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [showSuggest, setShowSuggest] = useState(false)
   const [filterScope, setFilterScope] = useState<'all' | 'global' | 'project'>('all')
   const [saveWorkspace, setSaveWorkspace] = useState<string>('*')
-  const dropToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const showToast = useCallback((text: string, kind: Toast['kind'] = 'ok') => {
+    setToast({ text, kind })
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 2200)
+  }, [])
 
   const openManage = useCallback(() => setShowManage(true), [])
+
+  /** 刷新记忆列表：失败静默——保存/编辑/删除后的主反馈不被覆盖，列表加载失败由主加载的错误态兜底。 */
+  const refreshList = useCallback(async () => {
+    try {
+      setItems(await fetchMemoryList(manageQuery))
+    } catch {
+      // 静默
+    }
+  }, [manageQuery])
 
   // 时间文案每分钟刷新一次，否则“刚刚”不会变
   const [, forceTick] = useState(0)
@@ -88,15 +108,61 @@ export function GlobalDock() {
     if (text.length < 2) return
     const wasClipped = text.length > 500
     const clipped = wasClipped ? text.slice(0, 500) : text
-    const ok = await saveMemory(clipped, saveWorkspace)
+    let ok = false
+    try { ok = await saveMemory(clipped, saveWorkspace) } catch { ok = false }
     const preview = clipped.length > 20 ? clipped.slice(0, 20).trimEnd() + '…' : clipped
-    setDropToast(ok ? `已记住：${preview}${wasClipped ? '（已截断500）' : ''}` : '保存失败')
-    if (dropToastTimer.current) clearTimeout(dropToastTimer.current)
-    dropToastTimer.current = setTimeout(() => setDropToast(null), 2200)
-    if (ok && showManage && activeTab === 'memory') {
-      try { setItems(await fetchMemoryList(manageQuery)) } catch {}
+    showToast(ok ? `已记住：${preview}${wasClipped ? '（已截断500）' : ''}` : '保存失败', ok ? 'ok' : 'error')
+    if (ok && showManage && activeTab === 'memory') void refreshList()
+  }, [showManage, activeTab, saveWorkspace, showToast, refreshList])
+
+  /** 快记（回车 / 保存按钮）：失败保留输入框草稿并给反馈。 */
+  const quickSave = useCallback(async () => {
+    const c = query.trim()
+    if (!c) return
+    let ok = false
+    try { ok = await saveMemory(c, saveWorkspace) } catch { ok = false }
+    if (!ok) {
+      showToast('保存失败', 'error')
+      return
     }
-  }, [showManage, activeTab, manageQuery, saveWorkspace])
+    setQuery('')
+    showToast('已记住 ✅')
+    void refreshList()
+  }, [query, saveWorkspace, showToast, refreshList])
+
+  /** 编辑保存：失败保留编辑态并给反馈。 */
+  const handleEditSave = useCallback(async (id: string) => {
+    const c = draft.trim()
+    if (!c) return
+    let ok = false
+    try { ok = await updateMemory(id, c) } catch { ok = false }
+    if (!ok) {
+      showToast('更新失败', 'error')
+      return
+    }
+    setEditingId(null)
+    showToast('已更新 ✅')
+    void refreshList()
+  }, [draft, showToast, refreshList])
+
+  /** 删除：失败不移除列表项并给反馈。 */
+  const handleDelete = useCallback(async (id: string) => {
+    if (!confirm('删除这条记忆？')) return
+    let ok = false
+    try { ok = await forgetMemory(id) } catch { ok = false }
+    if (!ok) {
+      showToast('删除失败', 'error')
+      return
+    }
+    setItems((prev) => prev.filter((x) => x.id !== id))
+    showToast('已删除')
+  }, [showToast])
+
+  /** 复制：失败给反馈。 */
+  const handleCopy = useCallback(async (text: string) => {
+    const ok = await copyText(text)
+    if (!ok) showToast('复制失败', 'error')
+  }, [showToast])
 
   const dotDropHandlers = {
     onDragOver: (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; if (!isDropOver) setIsDropOver(true) },
@@ -166,7 +232,10 @@ export function GlobalDock() {
         const items = await fetchMemoryList(manageQuery)
         if (cancelled) return
         setItems(items)
-      } catch {} finally {
+        setListError(false)
+      } catch {
+        if (!cancelled) setListError(true)
+      } finally {
         if (!cancelled) setLoading(false)
       }
     }, 300)
@@ -174,7 +243,7 @@ export function GlobalDock() {
       cancelled = true
       clearTimeout(t)
     }
-  }, [showManage, manageQuery, activeTab])
+  }, [showManage, manageQuery, activeTab, reloadTick])
 
   // 管理面板数据 - 召回历史
   useEffect(() => {
@@ -184,17 +253,20 @@ export function GlobalDock() {
       setHistoryLoading(true)
       try {
         const res = await fetch('/api/dsh-echo-memory/recall-history', { headers: { Accept: 'application/json' } })
-        if (!res.ok) return
+        if (!res.ok) throw new Error(`recall-history failed HTTP ${res.status}`)
         const data = (await res.json()) as { items: RecallHistoryEntry[] }
         if (cancelled) return
         setHistory(Array.isArray(data.items) ? data.items : [])
-      } catch {} finally {
+        setHistoryError(false)
+      } catch {
+        if (!cancelled) setHistoryError(true)
+      } finally {
         if (!cancelled) setHistoryLoading(false)
       }
     }
     void fetchHistory()
     return () => { cancelled = true }
-  }, [showManage, activeTab])
+  }, [showManage, activeTab, historyReload])
 
   // 搜索联想池：面板打开时拉一次全量用于本地联想
   useEffect(() => {
@@ -248,7 +320,7 @@ export function GlobalDock() {
   }, [manageQuery, suggestPool])
 
   // 清理 toast 定时器
-  useEffect(() => () => { if (dropToastTimer.current) clearTimeout(dropToastTimer.current) }, [])
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
   const first = hits[0]
   const more = hits.length > 1 ? hits.length - 1 : 0
@@ -408,6 +480,19 @@ export function GlobalDock() {
                 {(() => {
                   const displayItems = filterScope === 'all' ? items : items.filter(r => filterScope === 'global' ? r.workspace === '*' : r.workspace !== '*')
                   if (loading && items.length === 0) return <div style={{ padding: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>加载中…</div>
+                  if (listError && items.length === 0) return (
+                    <div style={{ padding: '24px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '20px', marginBottom: '6px' }}>⚠️</div>
+                      <div style={{ fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)' }}>加载失败</div>
+                      <button
+                        type="button"
+                        onClick={() => { setListError(false); setReloadTick((x) => x + 1) }}
+                        style={{ marginTop: '10px', padding: '4px 14px', borderRadius: '999px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', cursor: 'pointer' }}
+                      >
+                        重试
+                      </button>
+                    </div>
+                  )
                   if (displayItems.length === 0) return (
                     <div style={{ padding: '24px', textAlign: 'center' }}>
                       <div style={{ fontSize: '20px', marginBottom: '6px' }}>📭</div>
@@ -464,13 +549,7 @@ export function GlobalDock() {
                               </button>
                               <button
                                 type="button"
-                                onClick={async () => {
-                                  const c = draft.trim()
-                                  if (!c) return
-                                  await updateMemory(r.id, c)
-                                  setEditingId(null)
-                                  setItems(await fetchMemoryList(manageQuery))
-                                }}
+                                onClick={() => void handleEditSave(r.id)}
                                 style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'var(--dsw-alias-interactive-bg)', color: 'white', fontSize: '12px', cursor: 'pointer' }}
                               >
                                 保存
@@ -495,18 +574,14 @@ export function GlobalDock() {
                               </button>
                               <button
                                 type="button"
-                                onClick={async () => {
-                                  if (!confirm('删除这条记忆？')) return
-                                  await forgetMemory(r.id)
-                                  setItems((prev) => prev.filter((x) => x.id !== r.id))
-                                }}
+                                onClick={() => void handleDelete(r.id)}
                                 style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
                               >
                                 🗑 删除
                               </button>
                               <button
                                 type="button"
-                                onClick={() => { void copyText(r.content) }}
+                                onClick={() => { void handleCopy(r.content) }}
                                 style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
                               >
                                 ⎘ 复制
@@ -536,13 +611,9 @@ export function GlobalDock() {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={async (e) => {
+                  onKeyDown={(e) => {
                     if (e.key !== 'Enter') return
-                    const c = query.trim()
-                    if (!c) return
-                    await saveMemory(c, saveWorkspace)
-                    setQuery('')
-                    setItems(await fetchMemoryList(manageQuery))
+                    void quickSave()
                   }}
                   placeholder="记住：回车保存…"
                   style={{
@@ -558,13 +629,7 @@ export function GlobalDock() {
                 />
                 <button
                   type="button"
-                  onClick={async () => {
-                    const c = query.trim()
-                    if (!c) return
-                    await saveMemory(c, saveWorkspace)
-                    setQuery('')
-                    setItems(await fetchMemoryList(manageQuery))
-                  }}
+                  onClick={() => void quickSave()}
                   style={{ padding: '8px 14px', borderRadius: '8px', border: 'none', background: 'var(--dsw-alias-interactive-bg)', color: 'white', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
                   保存
@@ -575,6 +640,18 @@ export function GlobalDock() {
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 8px 8px', minHeight: 0 }}>
               {historyLoading && history.length === 0 ? (
                 <div style={{ padding: '24px', textAlign: 'center', fontSize: '12px', color: 'var(--dsw-alias-label-tertiary)' }}>加载中…</div>
+              ) : historyError && history.length === 0 ? (
+                <div style={{ padding: '24px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '20px', marginBottom: '6px' }}>⚠️</div>
+                  <div style={{ fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)' }}>加载失败</div>
+                  <button
+                    type="button"
+                    onClick={() => { setHistoryError(false); setHistoryReload((x) => x + 1) }}
+                    style={{ marginTop: '10px', padding: '4px 14px', borderRadius: '999px', border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    重试
+                  </button>
+                </div>
               ) : history.length === 0 ? (
                 <div style={{ padding: '24px', textAlign: 'center' }}>
                   <div style={{ fontSize: '20px', marginBottom: '6px' }}>💭</div>
@@ -602,7 +679,7 @@ export function GlobalDock() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => { void copyText(h.content) }}
+                            onClick={() => { void handleCopy(h.content) }}
                             style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px', flexShrink: 0 }}
                             title="复制"
                           >
@@ -617,9 +694,9 @@ export function GlobalDock() {
             </div>
           )}
         </div>
-        {dropToast && (
-          <div style={{ position: 'fixed', bottom: '510px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 41, maxWidth: 'min(320px, calc(100vw - 32px))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {dropToast}
+        {toast && (
+          <div style={{ position: 'fixed', bottom: '510px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: toast.kind === 'error' ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-primary)', zIndex: 41, maxWidth: 'min(320px, calc(100vw - 32px))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {toast.text}
           </div>
         )}
       </>
@@ -666,7 +743,7 @@ export function GlobalDock() {
     return (
       <>
         {dotButton('记忆管理 · 点击打开 / 拖动移动 / 双击复位 · 拖文字到此可直接记住')}
-        {dropToast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 41 }}>{dropToast}</div>}
+        {toast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: toast.kind === 'error' ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-primary)', zIndex: 41 }}>{toast.text}</div>}
         {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 41, pointerEvents: 'none' }}>松手记住</div>}
       </>
     )
@@ -676,7 +753,7 @@ export function GlobalDock() {
     return (
       <>
         {dotButton('已召回 · 点击打开记忆管理 / 拖动移动 / 双击复位 · 拖文字到此可直接记住')}
-        {dropToast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: 'var(--dsw-alias-label-primary)', zIndex: 41 }}>{dropToast}</div>}
+        {toast && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '8px 12px', borderRadius: '8px', background: 'var(--dsw-alias-bg-layer-2)', border: '1px solid var(--dsw-alias-border-l2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', fontSize: '12px', color: toast.kind === 'error' ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-primary)', zIndex: 41 }}>{toast.text}</div>}
         {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 41, pointerEvents: 'none' }}>松手记住</div>}
       </>
     )

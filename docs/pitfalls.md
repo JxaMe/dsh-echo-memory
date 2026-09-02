@@ -67,3 +67,27 @@
 - **隔离实例 onboarding 两步弹窗**：全新 DSH_HOME 首启有「内测声明（继续）」→「API 向导（稍后配置）」两步异步弹窗；点完第一步 mask 会短暂消失再出现第二步——playwright 要循环「点按钮→等 mask 无 + 无待点按钮」双条件才退出，否则第二步挡住设置点击。
 - **新增依赖解析**：用 `@deepseek-ai/dsh-client-connection` 的 RPC 类型要在 package.json 声明（peerDependencies 0.1.1-rc.2）后 `pnpm install`，否则 tsc 报 TS2307。
 - **探针脚本**：JsonStorageBackend 构造传 root 字符串（`new JsonStorageBackend(path)`）；`unit.loadAll()` 返回 `{tables, global}` 不是数组，记录在 `all.tables.memories`。隔离实例 console 的 `dynamicCordisRunner/syncInspectManifest 404` 是官方扩展探测的环境噪音，与本插件无关。
+
+## 7. DSH 错误色变量是 `--dsw-alias-state-error-primary`，`--dsw-alias-label-error` 未定义
+
+- **现象**：`var(--dsw-alias-label-error)` 解析为黑色（var 未定义回落 initial color），错误提示不显示红色。
+- **根因**：DSH 主题 token 定义了 `label-primary/secondary/tertiary`、`bg-layer-*` 等，但**没有 `label-error`**（官方代码里用它的组件实际也渲染成黑）。真正的语义色是 `--dsw-alias-state-error-primary`（红 `rgb(236,19,19)`）/ `--dsw-alias-state-error-secondary`（浅红）/ `--dsw-alias-state-success-primary`（绿）。
+- **验证**：getComputedStyle 下 `label-primary` 有值、`label-error` 为空、`state-error-primary = rgb(236,19,19)`；变量定义不在 `:root`，别从 documentElement 读。
+- **教训**：用 DSH 语义色前先在浏览器 getComputedStyle 确认变量有值；错误/成功一律用 `state-error-*` / `state-success-*`。
+
+## 8. 独立验证实例：端口被 profile 覆盖 + 认证 token 每次启动不同
+
+- **现象**：`dsh --profile web --port 3999` 仍绑 3080——profile 的 `cordis.patch.yml` 里 webserver entry 固定 `port: 3080`，CLI `--port` 被覆盖。
+- **解决**：`--patch` 传临时 patch 覆盖端口：`dsh --profile web --patch /tmp/port.yml --trusted-host 127.0.0.1:3999 --no-open`（patch 是 webserver entry 的 config.port）。
+- **认证**：`curl` 直接访问返回 401；从启动日志取 `dsh web: http://127.0.0.1:3999/?token=...`，playwright 先 goto 带 token 的 URL 种会话 cookie，再访问基址。
+- **token 每次启动不同**：脚本 AUTH_URL 要按新日志重提；用 `sed 's/token=[...]/.../'` 替换时小心别误替换 `${process.env.TOKEN}` 里的 `token=` 前缀。
+- **卡片回收站验证**：purge/recycle 区只在 `deletionMode === 'tombstone'` 时渲染；测试 profile 若被用户层覆盖成 purge，需先 `selectOption('#dsh-echo-memory-deletion-mode', 'tombstone')` 切回（删除模式是 `<select>`，不是可点 option 文本）。
+
+## 9. 拆大文件两阶段（先加后删）：以卡片深模块为例
+
+- **教训**（拆 GlobalDock 中途回滚过一次）：拆模块**先加后删、一次一个 seam**——先建新模块并接好调用，typecheck/test 通过后再删旧代码；不要先删旧的再补新的（中间态不可编译）。
+- **本次卡片拆分（card-controller 586→471、MemoryPluginCard 609→392）的三个 seam，按「高内聚、可单测」排序**：
+  1. **字段控件簇 → `card-fields.tsx`**：4 个纯显示组件（OverrideHead + 文本/布尔/选项字段）共用 props 模式 + 同一个调用点，最自然的缝隙。
+  2. **样式注入 → `card-styles.ts`**：一次性 `<style>`（dshm- 前缀、幂等）是独立职责，和组件逻辑无关。
+  3. **暂存投影 → `card-projection.ts`**：把「草稿 + 三层设置值 → 字段状态」从类方法提取为纯函数 `projectCardState(input)`，补 8 条单测锁定行为；controller 只剩状态变更与动作。
+- **循环依赖注意**：投影模块 `type`-import 控制器类型（擦除后无运行时边），控制器 `value`-import 投影函数——单向运行时依赖，无环。共享的草稿解析 `parseField` 从投影模块 export（写路径 save 与渲染路径共用）。
