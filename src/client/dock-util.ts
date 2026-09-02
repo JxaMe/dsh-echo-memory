@@ -46,3 +46,9 @@ export async function copyText(text: string): Promise<boolean> {
     return ok
   } catch { return false }
 }
+
+/** Dock 全局轻提示（面板与原点共用，GlobalDock 持有单一真相）。 */
+export type Toast = { text: string; kind: 'ok' | 'error' }
+
+/** 存储恢复事件（host `/api/dsh-echo-memory/storage-status` 返回的 recovered）。 */
+export type StorageRecovered = { at: number; backupPath: string }
