@@ -14,6 +14,14 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
+/** 记忆文件损坏（无法解析/版本畸形）错误：可自愈（隔离备份 + 空库），与版本/迁移链错误区分。 */
+export class MemoryFileCorruptedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'MemoryFileCorruptedError'
+  }
+}
+
 /** 一条级间迁移：把上一版本的一条记录转换成下一版本。 */
 export interface MemoryMigration {
   /** 迁移起点版本（记录转换前的文件版本）。 */
@@ -66,11 +74,11 @@ export async function migrateMemoryFile(
       readonly tables?: Record<string, Record<string, unknown>>
     }
   } catch (error) {
-    throw new Error(`dsh-echo-memory: memory file is corrupted (invalid JSON): ${String(error)}`)
+    throw new MemoryFileCorruptedError(`dsh-echo-memory: memory file is corrupted (invalid JSON): ${String(error)}`)
   }
   const fileVersion = file.unit?.version ?? 0
   if (typeof fileVersion !== 'number' || fileVersion < 0) {
-    throw new Error(`dsh-echo-memory: memory file has malformed unit version: ${String(file.unit?.version)}`)
+    throw new MemoryFileCorruptedError(`dsh-echo-memory: memory file has malformed unit version: ${String(file.unit?.version)}`)
   }
   if (fileVersion === expectedVersion) return false
   if (fileVersion > expectedVersion) {
@@ -117,4 +125,41 @@ export async function migrateMemoryFile(
   await writeFile(tmp, out, { encoding: 'utf8', mode: 0o600 })
   await rename(tmp, path)
   return true
+}
+/**
+ * 把记忆文件隔离备份（rename 到 `.corrupt-<ts>` 唯一名），返回备份路径。
+ * 原文件被移走后，存储后端在 `open` 时会新建空库——数据保留在备份里可手动修复。
+ */
+export async function quarantineMemoryFile(root: string): Promise<string> {
+  const path = join(root, UNIT_FILE)
+  const backup = join(root, `${UNIT_FILE}.corrupt-${Date.now()}-${randomUUID().slice(0, 8)}`)
+  await rename(path, backup)
+  return backup
+}
+
+/** 打开前的文件可用性保障结果。 */
+export type MemoryFileRecovery =
+  | { kind: 'ok'; migrated: boolean }
+  | { kind: 'recovered-corrupt'; backupPath: string }
+
+/**
+ * 打开前的文件可用性保障：正常迁移；文件损坏（JSON 解析失败/版本畸形）时
+ * 隔离备份并返回恢复标记，上层以空库继续——数据不丢（备份可手动修复）、插件不瘫痪。
+ * 版本比代码新 / 缺迁移链等安全类错误保持抛错（不静默降级）。
+ */
+export async function ensureMemoryFileUsable(
+  root: string,
+  expectedVersion: number,
+  migrations: readonly MemoryMigration[] = MEMORY_MIGRATIONS,
+): Promise<MemoryFileRecovery> {
+  try {
+    const migrated = await migrateMemoryFile(root, expectedVersion, migrations)
+    return { kind: 'ok', migrated }
+  } catch (error) {
+    if (error instanceof MemoryFileCorruptedError) {
+      const backupPath = await quarantineMemoryFile(root)
+      return { kind: 'recovered-corrupt', backupPath }
+    }
+    throw error
+  }
 }

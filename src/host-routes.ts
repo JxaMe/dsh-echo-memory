@@ -19,6 +19,7 @@ export interface RouteDeps {
   searchRecent: (query: string, limit: number) => unknown
   save: (input: { content: string; tags?: string[]; kind?: import('./domain.js').MemoryKind; workspace: string }) => Promise<unknown>
   forget: (id: string) => Promise<boolean>
+  storageStatus: () => { recovered: { at: number; backupPath: string } | null }
   defaultWorkspace: string
 }
 
@@ -126,6 +127,7 @@ export function registerMemoryRoutes(ctx: Context, deps: RouteDeps): void {
     })
     route('/api/dsh-echo-memory/last-recall', async () => deps.getLastRecall())
     route('/api/dsh-echo-memory/recall-history', async () => ({ items: deps.getRecallHistory() }))
+    route('/api/dsh-echo-memory/storage-status', async () => deps.storageStatus())
     route('/api/dsh-echo-memory/list', async (req) => {
       const url = new URL(req.url ?? '/api/dsh-echo-memory/list', 'http://localhost')
       const limit = parseLimit(url.searchParams.get('limit'), 20, 1, 50)

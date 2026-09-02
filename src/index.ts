@@ -22,7 +22,7 @@ import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
 import { memoryContextText } from './prompt.js'
 import { createRecallMessage, decideRecall, extractQuery, isRecallMessage } from './recall.js'
-import { migrateMemoryFile } from './migrate.js'
+import { ensureMemoryFileUsable, quarantineMemoryFile } from './migrate.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
   type DeletionMode, type MemorySettings,
@@ -103,11 +103,22 @@ export default class MemoryService extends Service {
     this.registerPreviewRoute(ctx)
   }
 
-  /** 打开领域并注册全部能力；任何一步失败都会让插件加载失败（配置错误响亮）。 */
+  /** 打开领域并注册全部能力；配置/版本类错误保持响亮失败，文件损坏则自愈（隔离备份 + 空库）。 */
   protected async [Service.init](): Promise<void> {
-    // 领域版本迁移（文件级，open 之前）：schema 破坏性变更在此升级旧库。
-    await migrateMemoryFile(storageRoot(), memoryDomainSpec.version)
-    const domain = await this.ctx.storageDomain.open(memoryDomainSpec)
+    const root = storageRoot()
+    // 文件级可用性保障：正常迁移；JSON 损坏时隔离备份、以空库继续。
+    const recovery = await ensureMemoryFileUsable(root, memoryDomainSpec.version)
+    if (recovery.kind === 'recovered-corrupt') this.recordRecovery(recovery.backupPath)
+    let domain
+    try {
+      domain = await this.ctx.storageDomain.open(memoryDomainSpec)
+    } catch (error) {
+      // 打开失败（记录 schema 校验/读取异常）：文件还在则隔离备份后用空库重开；否则保持响亮失败。
+      const backupPath = await quarantineMemoryFile(root).catch(() => null)
+      if (backupPath === null) throw error
+      this.recordRecovery(backupPath)
+      domain = await this.ctx.storageDomain.open(memoryDomainSpec)
+    }
     this.ctx.effect(() => () => {
       void domain.close()
     }, 'dsh-echo-memory.domainClose')
@@ -121,6 +132,22 @@ export default class MemoryService extends Service {
     this.registerRecall()
     this.registerCapture()
     console.log('[dsh-echo-memory] loaded (memory domain open; tools: memory_save, memory_search, memory_forget, memory_restore; recall: on-demand; recycle: on)')
+  }
+
+  /** 最近一次存储恢复事件（损坏自动隔离）；null 表示本次启动存储正常。 */
+  private recovery: { at: number; backupPath: string } | null = null
+
+  private recordRecovery(backupPath: string): void {
+    this.recovery = { at: Date.now(), backupPath }
+    console.warn(
+      `[dsh-echo-memory] 记忆文件损坏，已隔离备份到 ${backupPath}；本次以空库启动。`
+      + '原文件保留在备份中，可手动修复后还原。',
+    )
+  }
+
+  /** 存储恢复状态（供 client Dock 展示一次性提示）。 */
+  storageStatus(): { recovered: { at: number; backupPath: string } | null } {
+    return { recovered: this.recovery }
   }
 
   /**
@@ -203,36 +230,19 @@ export default class MemoryService extends Service {
       readSettings: () => this.settingsReader.get(),
       getLastRecall: () => this.recallStore.last ?? { at: 0, query: '', hits: [] },
       getRecallHistory: () => this.recallStore.list(),
-      memoryStats: () => {
-        try { return this.memoryStats() } catch { return { injections: { requests: 0, withContent: 0 }, memories: 0 } }
-      },
-      purgeTombstones: async () => {
-        try { return await this.purgeTombstones() } catch { return 0 }
-      },
-      listDeleted: (limit) => {
-        try { return this.listDeleted(limit) } catch { return [] }
-      },
-      restore: async (id) => {
-        try { return await this.restore(id) } catch { return false }
-      },
-      purgeOne: async (id) => {
-        try { return await this.purgeOne(id) } catch { return false }
-      },
-      updateMemory: async (id, patch) => {
-        try { return await this.updateMemory(id, patch) } catch { return false }
-      },
-      listRecent: (limit) => {
-        try { return this.listRecent(limit) } catch { return [] }
-      },
-      searchRecent: (q, limit) => {
-        try { return this.searchRecent(q, limit) } catch { return [] }
-      },
-      save: async (input) => {
-        try { return await this.save(input) } catch (e) { throw e }
-      },
-      forget: async (id) => {
-        try { return await this.forget(id) } catch { return false }
-      },
+      // 以下刻意不吞异常：内部失败如实抛给 HTTP 层（→500），client 的 failed/error 态才能真实生效，
+      // 而不是伪装成空列表/空回收站/清了 0 条。
+      memoryStats: () => this.memoryStats(),
+      purgeTombstones: async () => this.purgeTombstones(),
+      listDeleted: (limit) => this.listDeleted(limit),
+      restore: async (id) => this.restore(id),
+      purgeOne: async (id) => this.purgeOne(id),
+      updateMemory: async (id, patch) => this.updateMemory(id, patch),
+      listRecent: (limit) => this.listRecent(limit),
+      searchRecent: (q, limit) => this.searchRecent(q, limit),
+      save: async (input) => this.save(input),
+      forget: async (id) => this.forget(id),
+      storageStatus: () => this.storageStatus(),
       defaultWorkspace: this.config.defaultWorkspace,
     })
   }

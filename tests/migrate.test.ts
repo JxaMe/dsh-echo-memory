@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { MEMORY_MIGRATIONS, migrateMemoryFile, type MemoryMigration } from '../src/migrate.js'
+import { ensureMemoryFileUsable, MEMORY_MIGRATIONS, migrateMemoryFile, quarantineMemoryFile, type MemoryMigration } from '../src/migrate.js'
 
 /** 造一个合法形状的记忆文件。 */
 function file(version: number, records: Record<string, unknown>): string {
@@ -83,6 +83,66 @@ test('有迁移链：逐级升级记录并原子写回，再次调用幂等', as
     // 原子写：目录无 tmp 残留
     const files = await readdir(dir)
     assert.equal(files.filter((name: string) => name.endsWith('.tmp')).length, 0)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+// ---------- 数据损坏自愈 ----------
+
+test('损坏 JSON：ensure 隔离备份并返回 recovered-corrupt，原文件被移走可建空库', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
+  try {
+    await writeFile(join(dir, 'memory.json'), '{ this is not json')
+    const outcome = await ensureMemoryFileUsable(dir, 2)
+    assert.equal(outcome.kind, 'recovered-corrupt')
+    const backup = (outcome as { kind: 'recovered-corrupt'; backupPath: string }).backupPath
+    assert.equal(await readFile(backup, 'utf8'), '{ this is not json')
+    await assert.rejects(() => readFile(join(dir, 'memory.json'), 'utf8'))
+    assert.ok((await readdir(dir)).some(f => f.startsWith('memory.json.corrupt-')))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('损坏 JSON（版本畸形）：ensure 同样隔离', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
+  try {
+    await writeFile(join(dir, 'memory.json'), JSON.stringify({ unit: { version: 'x' }, tables: {} }))
+    const outcome = await ensureMemoryFileUsable(dir, 2)
+    assert.equal(outcome.kind, 'recovered-corrupt')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('版本比代码新：ensure 保持响亮拒绝（不静默降级）', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
+  try {
+    await writeFile(join(dir, 'memory.json'), file(3, {}))
+    await assert.rejects(() => ensureMemoryFileUsable(dir, 1), /newer than code version/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('正常文件：ensure 返回 ok + migrated', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
+  try {
+    await writeFile(join(dir, 'memory.json'), file(1, {}))
+    const outcome = await ensureMemoryFileUsable(dir, 2)
+    assert.equal(outcome.kind, 'ok')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('quarantineMemoryFile：隔离备份保留原内容', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
+  try {
+    await writeFile(join(dir, 'memory.json'), 'raw-content')
+    const backup = await quarantineMemoryFile(dir)
+    assert.equal(await readFile(backup, 'utf8'), 'raw-content')
+    await assert.rejects(() => readFile(join(dir, 'memory.json'), 'utf8'))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

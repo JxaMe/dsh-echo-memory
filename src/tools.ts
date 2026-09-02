@@ -21,7 +21,7 @@ const KIND_OPTIONS: readonly MemoryKind[] = [...MEMORY_KINDS]
  * 解析工具调用归属的工作区：显式参数（非空）> 当前 agent 会话 cwd > 部署缺省（`*`）。
  * 显式空串视为未传，避免污染全局。
  */
-function workspaceOf(
+export function workspaceOf(
   args: { readonly workspace?: string },
   exec: ToolRunContext,
   fallback: string,
@@ -32,7 +32,7 @@ function workspaceOf(
 }
 
 /** 检索结果渲染：模型可见文本（含 id，便于后续 memory_forget 引用）。 */
-function renderSearch(items: readonly SearchOutputItem[]): string {
+export function renderSearch(items: readonly SearchOutputItem[]): string {
   if (items.length === 0) return '还没这方面的记忆，试试换个关键词，或先用 memory_save 记住一条？'
   const lines = items.map((item, index) =>
     `${index + 1}. [${item.kind}] ${item.content}`
@@ -51,7 +51,7 @@ export interface SearchOutputItem {
   readonly strength: number
 }
 
-function toOutputItem({ record }: SearchHit): SearchOutputItem {
+export function toOutputItem({ record }: SearchHit): SearchOutputItem {
   return {
     id: record.id,
     content: record.content,
@@ -77,7 +77,7 @@ export function memoryTools(
     name: 'memory_save',
     description:
       '把一条长期记忆写入 dsh 记忆库（跨会话持久）。同一工作区内内容与类型完全相同的记忆会强化（strength+1）而不是重复保存。'
-      + '适合记住用户偏好、项目约束、已定决策。',
+      + '适合记住用户偏好、项目约束、已定决策；正文超长会被自动截断。',
     parameters: {
       content: {
         type: 'string',
@@ -257,7 +257,9 @@ export function memoryTools(
 
   const restore = defineTool({
     name: 'memory_restore',
-    description: '恢复一条已删除（墓碑）的记忆（仅墓碑模式下有效）。id 来自回收站或最近删除列表。',
+    description:
+      '恢复一条已删除（墓碑）的记忆（仅墓碑模式下有效）。需要明确知道要恢复的记忆 id（来自 memory_search 结果或用户提供）；'
+      + '仅在用户明确要求恢复时使用。',
     parameters: {
       id: {
         type: 'string',

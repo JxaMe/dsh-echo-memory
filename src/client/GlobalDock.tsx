@@ -3,6 +3,8 @@ import { elephantImage } from './elephantImage.ts'
 import { loadDragPos, useDragAnchor as useDockDrag } from './drag-anchor.ts'
 import { fetchList as fetchMemoryList, forgetMemory, saveMemory, updateMemory } from './memory-repo.ts'
 import { useRecallFeed } from './recall-feed.ts'
+import { copyText, formatTime, splitTitle } from './dock-util.ts'
+import { MemoryListItem } from './memory-list-item.tsx'
 
 type RecallHit = { id: string; kind: string; content: string; tags: readonly string[]; strength: number }
 type LastRecall = { at: number; query: string; hits: RecallHit[] }
@@ -12,46 +14,6 @@ type Toast = { text: string; kind: 'ok' | 'error' }
 
 const STORAGE_KEY = 'dshm-dock-pos'
 const DOT_SIZE = 44
-
-function splitTitle(content: string): { title: string; body: string } {
-  const raw = content.trim()
-  const colon = raw.search(/[:：]/)
-  if (colon > 0 && colon < 24) {
-    return { title: raw.slice(0, colon).trim(), body: raw.slice(colon + 1).replace(/^[:：\s]+/, '').trim() }
-  }
-  const comma = raw.search(/[，,]/)
-  if (comma > 0 && comma < 24) {
-    return { title: raw.slice(0, comma).trim(), body: raw.slice(comma + 1).trim() }
-  }
-  if (raw.length <= 20) return { title: raw, body: '' }
-  return { title: '', body: raw }
-}
-
-function formatTime(ts: number): string {
-  const d = Date.now() - ts
-  if (d < 60_000) return '刚刚'
-  if (d < 3_600_000) return `${Math.floor(d / 60_000)}分钟前`
-  if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}小时前`
-  return `${Math.floor(d / 86_400_000)}天前`
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {}
-  try {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    const ok = document.execCommand('copy')
-    ta.remove()
-    return ok
-  } catch { return false }
-}
 
 export function GlobalDock() {
   const [dotPos, setDotPos] = useState<{ x: number; y: number } | null>(null)
@@ -77,6 +39,8 @@ export function GlobalDock() {
   const [showSuggest, setShowSuggest] = useState(false)
   const [filterScope, setFilterScope] = useState<'all' | 'global' | 'project'>('all')
   const [saveWorkspace, setSaveWorkspace] = useState<string>('*')
+  const [storageRecovered, setStorageRecovered] = useState<{ at: number; backupPath: string } | null>(null)
+  const [dismissedRecovery, setDismissedRecovery] = useState(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const showToast = useCallback((text: string, kind: Toast['kind'] = 'ok') => {
@@ -322,6 +286,20 @@ export function GlobalDock() {
   // 清理 toast 定时器
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
+  // 存储恢复提示：打开面板时查一次 host 的恢复事件，未关闭过就显示一次性 banner
+  useEffect(() => {
+    if (!showManage || dismissedRecovery) return
+    let cancelled = false
+    fetch('/api/dsh-echo-memory/storage-status', { headers: { Accept: 'application/json' } })
+      .then(res => (res.ok ? res.json() : null))
+      .then((data: { recovered: { at: number; backupPath: string } | null } | null) => {
+        if (cancelled || data?.recovered == null) return
+        setStorageRecovered(data.recovered)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [showManage, dismissedRecovery])
+
   const first = hits[0]
   const more = hits.length > 1 ? hits.length - 1 : 0
   const dotDrag = useDockDrag(dotPos, setDotPos, openManage)
@@ -364,6 +342,13 @@ export function GlobalDock() {
               ×
             </button>
           </div>
+
+          {storageRecovered && !dismissedRecovery && (
+            <div style={{ margin: '8px 14px 0', padding: '8px 10px', borderRadius: '8px', border: '1px dashed var(--dsw-alias-state-error-primary)', background: 'rgba(236,19,19,0.06)', fontSize: '12px', color: 'var(--dsw-alias-state-error-primary)', display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+              <span style={{ flex: 1 }}>⚠️ 检测到记忆文件曾损坏，已自动备份并重置（备份：{storageRecovered.backupPath.split('/').pop()}）</span>
+              <button type="button" onClick={() => setDismissedRecovery(true)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '13px', color: 'inherit', padding: '0 2px' }} aria-label="关闭">×</button>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: '4px', padding: '8px 14px 0', flexShrink: 0 }}>
             <button
@@ -500,98 +485,20 @@ export function GlobalDock() {
                       <div style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', marginTop: '6px' }}>选中文字拖到原点或本面板也能直接记住</div>
                     </div>
                   )
-                  return displayItems.map((r) => {
-                    const isEditing = editingId === r.id
-                    return (
-                      <div
-                        key={r.id}
-                        style={{
-                          padding: '10px 8px',
-                          borderRadius: '8px',
-                          background: isEditing ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
-                          marginBottom: '2px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l2)', padding: '0 5px', borderRadius: '999px', lineHeight: '16px' }}>{r.kind}</span>
-                          <span style={{ fontSize: '11px', color: r.workspace === '*' ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-tertiary)', border: '1px solid var(--dsw-alias-border-l2)', padding: '0 5px', borderRadius: '999px', lineHeight: '16px', background: r.workspace === '*' ? 'rgba(99,102,241,0.08)' : 'transparent' }}>{r.workspace === '*' ? '全局' : (r.workspace.split('/').pop() || '项目')}</span>
-                          <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' }}>{formatTime(r.updatedAt)}</span>
-                          {r.tags.length > 0 && <span style={{ fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)' }}>#{r.tags[0]}</span>}
-                          {r.strength > 1 && <span style={{ fontSize: '10px', color: 'var(--dsw-alias-label-tertiary)' }}>×{r.strength}</span>}
-                        </div>
-                        {isEditing ? (
-                          <div style={{ marginTop: '6px' }}>
-                            <textarea
-                              value={draft}
-                              onChange={(e) => setDraft(e.target.value)}
-                              rows={3}
-                              style={{
-                                width: '100%',
-                                boxSizing: 'border-box',
-                                padding: '8px',
-                                borderRadius: '8px',
-                                border: '1px solid var(--dsw-alias-border-l2)',
-                                background: 'var(--dsw-alias-bg-base)',
-                                color: 'var(--dsw-alias-label-primary)',
-                                fontSize: '12px',
-                                resize: 'vertical',
-                                outline: 'none',
-                              }}
-                              autoFocus
-                            />
-                            <div style={{ display: 'flex', gap: '6px', marginTop: '6px', justifyContent: 'flex-end' }}>
-                              <button
-                                type="button"
-                                onClick={() => setEditingId(null)}
-                                style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', fontSize: '12px', cursor: 'pointer' }}
-                              >
-                                取消
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleEditSave(r.id)}
-                                style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', background: 'var(--dsw-alias-interactive-bg)', color: 'white', fontSize: '12px', cursor: 'pointer' }}
-                              >
-                                保存
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--dsw-alias-label-primary)', marginTop: '4px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-word' }}>
-                              {r.content}
-                            </div>
-                            <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingId(r.id)
-                                  setDraft(r.content)
-                                }}
-                                style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
-                              >
-                                ✎ 编辑
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleDelete(r.id)}
-                                style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
-                              >
-                                🗑 删除
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { void handleCopy(r.content) }}
-                                style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--dsw-alias-label-tertiary)', padding: '2px 4px' }}
-                              >
-                                ⎘ 复制
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )
-                  })
+                  return displayItems.map((r) => (
+                    <MemoryListItem
+                      key={r.id}
+                      r={r}
+                      isEditing={editingId === r.id}
+                      draft={draft}
+                      onDraftChange={setDraft}
+                      onCancel={() => setEditingId(null)}
+                      onSave={() => void handleEditSave(r.id)}
+                      onStartEdit={() => { setEditingId(r.id); setDraft(r.content) }}
+                      onDelete={() => void handleDelete(r.id)}
+                      onCopy={() => void handleCopy(r.content)}
+                    />
+                  ))
                 })()}
               </div>
 
