@@ -13,6 +13,7 @@ import type { MemoryStore, SearchHit } from './store.js'
 import { tagSuffix } from './store.js'
 import type { DeletionMode } from './settings.js'
 import { searchRecall } from './scoring.js'
+import type { SuggestionStore } from './suggestion-store.js'
 
 /** 记忆类型枚举（模型可见的字符串字面量）。 */
 const KIND_OPTIONS: readonly MemoryKind[] = [...MEMORY_KINDS]
@@ -63,15 +64,17 @@ export function toOutputItem({ record }: SearchHit): SearchOutputItem {
 }
 
 /**
- * 构造三个记忆工具。
+ * 构造记忆工具（4+1：含 suggest 提议）。
  * @param store - 已就绪的记忆仓储（execute 时保证已打开）。
  * @param defaultWorkspace - 无会话 cwd 时的归属工作区，缺省 `*`。
  * @param readDeletionMode - 现读删除模式（设置面板保存即生效）。
+ * @param suggestionStore - 待确认提议队列（AI 调 suggest 后进 Dock）。
  */
 export function memoryTools(
   store: MemoryStore,
   defaultWorkspace: string,
   readDeletionMode: () => DeletionMode,
+  suggestionStore?: SuggestionStore,
 ): readonly ToolDefinition[] {
   const save = defineTool({
     name: 'memory_save',
@@ -286,5 +289,61 @@ export function memoryTools(
     },
   })
 
-  return [save, search, forget, restore]
+  const suggest = defineTool({
+    name: 'memory_suggest',
+    description:
+      '提议一条值得长期记住的记忆（经 Dock 弹条让用户确认后才真存，不直接落库）。'
+      + '当发现用户偏好、项目约束、已定决策等值得记住时调用；由用户在 Dock 点确认后落库。',
+    parameters: {
+      content: {
+        type: 'string',
+        required: true,
+        description: '提议记住的事实/偏好/决策，一句完整的话',
+      },
+      kind: {
+        type: 'string',
+        enum: KIND_OPTIONS,
+        description: '记忆类型：fact 事实 / preference 偏好 / project 项目 / session 会话结论，缺省 fact',
+      },
+      tags: {
+        type: 'array',
+        items: { type: 'string' },
+        description: '检索标签（自动小写、去重），缺省空',
+      },
+      workspace: {
+        type: 'string',
+        description: '归属工作区：仅本项目有效的填当前会话 cwd，跨项目通用的填 *，缺省用当前会话 cwd',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          suggested: { type: 'boolean', required: true },
+          id: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.suggested ? `已提议记住（待确认 id=${value.id}）` : '提议失败',
+      }],
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec) {
+      if (!suggestionStore) throw new Error('suggestion store not ready')
+      const raw = args.content ?? ''
+      if (raw.trim().length === 0) throw new TypeError('suggest content must not be empty')
+      const workspace = workspaceOf(args as { workspace?: string }, exec, defaultWorkspace)
+      const entry = suggestionStore.add({
+        content: raw,
+        kind: args.kind as MemoryKind | undefined,
+        tags: args.tags as string[] | undefined,
+        workspace,
+      })
+      return { suggested: true, id: entry.id }
+    },
+  })
+
+  return suggestionStore ? [save, search, forget, restore, suggest] : [save, search, forget, restore]
 }

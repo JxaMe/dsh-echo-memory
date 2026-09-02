@@ -46,6 +46,11 @@ export function memoryContextText(feed: CaptureFeed): (context: AssembleContext)
   }
 }
 
+/** 隐藏提议提示词：每轮注入，带“若无则不提”判断，避免逼 AI 每轮找话题；并让 AI 自主判断归属工作区。 */
+export function suggestionPromptText(): string {
+  return '【记忆提议·隐藏】若本轮对话出现值得长期记住的用户偏好、项目约束或已定决策，且记忆库尚无，请调用 memory_suggest 提议一条（经 Dock 弹条让用户确认后才真存）；若无则不提，不必每轮都找话题。归属判断：仅本项目有效的约束/决策用当前会话 cwd，跨项目通用的偏好用全局 *。不要直接调 memory_save。'
+}
+
 /** 从缓冲取出当前会话的待确认条目（无会话上下文时返回空；取出即消费）。 */
 function takeCapturedFor(feed: CaptureFeed, context: AssembleContext): ReadonlyArray<{ readonly content: string }> {
   const sessionId = context.agent?.session?.header?.id

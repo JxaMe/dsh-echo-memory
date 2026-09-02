@@ -96,6 +96,9 @@ function stubDeps(overrides: Partial<RouteDeps> = {}): { deps: RouteDeps; calls:
     readSettings: () => ({ injectEnabled: true, injectLimit: 8, injectMaxChars: 1500, captureEnabled: true, capturePatterns: [], captureMaxPerSession: 20, deletionMode: 'tombstone' }),
     getLastRecall: () => null,
     getRecallHistory: () => [],
+    getSuggestions: () => { called('getSuggestions', []); return [] },
+    dismissSuggestion: (id) => { called('dismissSuggestion', [id]); return true },
+    confirmSuggestion: async (id) => { called('confirmSuggestion', [id]); return { saved: true, id } },
     memoryStats: () => ({ injections: { requests: 0, withContent: 0 }, memories: 0 }),
     purgeTombstones: async () => { called('purgeTombstones', []); return 0 },
     listDeleted: (limit) => { called('listDeleted', [limit]); return [] },
@@ -144,7 +147,7 @@ function fakeRes(): { out: { status: number | undefined; body: unknown }; res: i
   return { out, res }
 }
 
-test('registerMemoryRoutes：注册全部 12 条路由（kind=exact）', () => {
+test('registerMemoryRoutes：注册全部 15 条路由（kind=exact）', () => {
   const base = stubDeps()
   const { registrations } = mockCtx(base.deps)
   const paths = registrations.map(r => r.path).sort()
@@ -160,6 +163,9 @@ test('registerMemoryRoutes：注册全部 12 条路由（kind=exact）', () => {
     '/api/dsh-echo-memory/save',
     '/api/dsh-echo-memory/stats',
     '/api/dsh-echo-memory/storage-status',
+    '/api/dsh-echo-memory/suggestions',
+    '/api/dsh-echo-memory/suggestions/confirm',
+    '/api/dsh-echo-memory/suggestions/dismiss',
     '/api/dsh-echo-memory/update',
   ])
   assert.ok(registrations.every(r => r.kind === 'exact'))

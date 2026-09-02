@@ -9,6 +9,9 @@ export interface RouteDeps {
   readSettings: () => MemorySettings
   getLastRecall: () => unknown
   getRecallHistory: () => unknown
+  getSuggestions: () => unknown
+  dismissSuggestion: (id: string) => boolean
+  confirmSuggestion: (id: string) => Promise<unknown>
   memoryStats: () => unknown
   purgeTombstones: () => Promise<number>
   listDeleted: (limit: number) => unknown
@@ -162,6 +165,19 @@ export function registerMemoryRoutes(ctx: Context, deps: RouteDeps): void {
       const id = typeof body.id === 'string' ? body.id : ''
       if (!id) throw badRequest('missing id')
       return { ok: await deps.forget(id) }
+    })
+    route('/api/dsh-echo-memory/suggestions', async () => ({ items: deps.getSuggestions() }))
+    route('/api/dsh-echo-memory/suggestions/dismiss', async (req) => {
+      const body = await readJsonBody(req) as { id?: unknown }
+      const id = typeof body.id === 'string' ? body.id : ''
+      if (!id) throw badRequest('missing id')
+      return { dismissed: deps.dismissSuggestion(id) }
+    })
+    route('/api/dsh-echo-memory/suggestions/confirm', async (req) => {
+      const body = await readJsonBody(req) as { id?: unknown }
+      const id = typeof body.id === 'string' ? body.id : ''
+      if (!id) throw badRequest('missing id')
+      return deps.confirmSuggestion(id)
     })
     return () => { for (const dispose of regs) dispose() }
   })

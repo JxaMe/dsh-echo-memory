@@ -10,6 +10,8 @@ import { elephantImage } from './elephantImage.ts'
 import { loadDragPos, useDragAnchor as useDockDrag } from './drag-anchor.ts'
 import { saveMemory } from './memory-repo.ts'
 import { useRecallFeed, type RecallHit } from './recall-feed.ts'
+import { useSuggestionFeed } from './suggestion-feed.ts'
+import { SuggestionCard } from './suggestion-card.tsx'
 import { type StorageRecovered, type Toast } from './dock-util.ts'
 import { DockManagePanel, DockToast } from './dock-panel.tsx'
 import { RecallBubble } from './recall-bubble.tsx'
@@ -91,6 +93,7 @@ export function GlobalDock() {
 
   // 召回轮询与气泡显隐状态机（独立 hook）
   const { hits, showBig, collapsed, setShowBig, setCollapsed, pauseHide, resumeHide } = useRecallFeed(showManage)
+  const { suggestions, dismiss: dismissSuggestion, confirm: confirmSuggestion } = useSuggestionFeed()
 
   // 清理 toast 定时器
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
@@ -112,6 +115,25 @@ export function GlobalDock() {
   const first = hits[0]
   const more = hits.length > 1 ? hits.length - 1 : 0
   const dotDrag = useDockDrag(dotPos, setDotPos, openManage)
+
+  const handleSuggestionConfirm = useCallback(async (id: string) => {
+    const ok = await confirmSuggestion(id)
+    showToast(ok ? '已记住 ✅' : '保存失败', ok ? 'ok' : 'error')
+    if (ok) setListRefresh((x) => x + 1)
+  }, [confirmSuggestion, showToast])
+
+  const handleSuggestionDismiss = useCallback(async (id: string) => {
+    await dismissSuggestion(id)
+  }, [dismissSuggestion])
+
+  const suggestionNode = suggestions.length > 0 && !showManage ? (
+    <SuggestionCard
+      suggestion={suggestions[0]!}
+      onConfirm={() => void handleSuggestionConfirm(suggestions[0]!.id)}
+      onDismiss={() => void handleSuggestionDismiss(suggestions[0]!.id)}
+      dotPos={dotPos}
+    />
+  ) : null
 
   // 管理面板优先
   if (showManage) {
@@ -172,6 +194,7 @@ export function GlobalDock() {
       <>
         {dotButton('记忆管理 · 点击打开 / 拖动移动 / 双击复位 · 拖文字到此可直接记住')}
         <DockToast toast={toast} bottom={76} />
+        {suggestionNode}
         {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 41, pointerEvents: 'none' }}>松手记住</div>}
       </>
     )
@@ -182,20 +205,35 @@ export function GlobalDock() {
       <>
         {dotButton('已召回 · 点击打开记忆管理 / 拖动移动 / 双击复位 · 拖文字到此可直接记住')}
         <DockToast toast={toast} bottom={76} />
+        {suggestionNode}
         {isDropOver && <div style={{ position: 'fixed', bottom: '76px', right: '20px', padding: '6px 10px', borderRadius: '999px', background: 'var(--dsw-alias-brand-primary)', color: 'white', fontSize: '11px', zIndex: 41, pointerEvents: 'none' }}>松手记住</div>}
       </>
     )
   }
 
-  if (!showBig) return null
+  if (!showBig) {
+    if (suggestionNode) {
+      return (
+        <>
+          {dotButton('已召回 · 点击打开记忆管理 / 拖动移动 / 双击复位 · 拖文字到此可直接记住')}
+          <DockToast toast={toast} bottom={76} />
+          {suggestionNode}
+        </>
+      )
+    }
+    return null
+  }
 
   return (
-    <RecallBubble
-      hit={first}
-      more={more}
-      onClose={() => { setShowBig(false); setCollapsed(true) }}
-      pauseHide={pauseHide}
-      resumeHide={resumeHide}
-    />
+    <>
+      <RecallBubble
+        hit={first}
+        more={more}
+        onClose={() => { setShowBig(false); setCollapsed(true) }}
+        pauseHide={pauseHide}
+        resumeHide={resumeHide}
+      />
+      {suggestionNode}
+    </>
   )
 }

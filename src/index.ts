@@ -20,8 +20,9 @@ import { MemoryStore } from './store.js'
 import type { SaveInput, SaveOutcome, SearchHit, SearchOptions } from './store.js'
 import { memoryTools } from './tools.js'
 import { CaptureFeed, createCaptureHandler } from './capture.js'
-import { memoryContextText } from './prompt.js'
+import { memoryContextText, suggestionPromptText } from './prompt.js'
 import { createRecallMessage, decideRecall, extractQuery, isRecallMessage } from './recall.js'
+import { SuggestionStore } from './suggestion-store.js'
 import { ensureMemoryFileUsable, quarantineMemoryFile } from './migrate.js'
 import {
   DEFAULT_CAPTURE_PATTERNS, DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
@@ -89,6 +90,7 @@ export default class MemoryService extends Service {
   private readonly settingsReader: ReturnType<typeof createSettingsReader>
   private store: MemoryStore | undefined
   private readonly recallStore = new RecallStore()
+  private readonly suggestionStore = new SuggestionStore()
 
   /**
    * @param ctx - 宿主上下文（storageDomain/systemPrompt/tools 就绪后才实例化）。
@@ -230,6 +232,21 @@ export default class MemoryService extends Service {
       readSettings: () => this.settingsReader.get(),
       getLastRecall: () => this.recallStore.last ?? { at: 0, query: '', hits: [] },
       getRecallHistory: () => this.recallStore.list(),
+      getSuggestions: () => this.suggestionStore.list(),
+      dismissSuggestion: (id) => this.suggestionStore.dismiss(id),
+      confirmSuggestion: async (id) => {
+        const entry = this.suggestionStore.list().find((e) => e.id === id)
+        if (!entry) return { saved: false, id }
+        const outcome = await this.save({
+          workspace: entry.workspace,
+          content: entry.content,
+          kind: entry.kind as never,
+          tags: entry.tags as never,
+          source: 'agent',
+        })
+        this.suggestionStore.dismiss(id)
+        return { saved: true, id: outcome.id }
+      },
       // 以下刻意不吞异常：内部失败如实抛给 HTTP 层（→500），client 的 failed/error 态才能真实生效，
       // 而不是伪装成空列表/空回收站/清了 0 条。
       memoryStats: () => this.memoryStats(),
@@ -252,6 +269,7 @@ export default class MemoryService extends Service {
       this.requireStore(),
       this.config.defaultWorkspace,
       () => this.settingsReader.get().deletionMode,
+      this.suggestionStore,
     )) {
       this.ctx.tools.register(tool)
     }
@@ -264,6 +282,11 @@ export default class MemoryService extends Service {
       name: 'memory',
       order: this.config.injectOrder,
       text: memoryContextText(this.captureFeed),
+    })
+    this.ctx.systemPrompt.context({
+      name: 'memory-suggest',
+      order: this.config.injectOrder + 1,
+      text: suggestionPromptText(),
     })
   }
 
