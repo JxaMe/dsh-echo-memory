@@ -9,9 +9,6 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { MemoryKind, MemoryRecord, MemorySource } from './domain.js'
 import { GLOBAL_WORKSPACE } from './domain.js'
 import type { DeletionMode } from './settings.js'
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 /** 一次保存的写限值（由插件配置解析而来）。 */
@@ -102,101 +99,13 @@ export function normalizeTags(tags: readonly string[] | undefined, max: number):
 }
 
 import {
-  BM25_B,
-  BM25_K1,
-  BM25F_B_BODY,
-  BM25F_B_TAGS,
-  BM25F_B_TITLE,
-  BM25F_W_BODY,
-  BM25F_W_TAGS,
-  BM25F_W_TITLE,
-  type Tokenizer,
   FRESH_WINDOW_MS,
-  HYBRID_ALPHA,
-  LOCAL_SYNONYMS,
-  META_QUERY_RE,
-  STOPWORDS,
   clampInt,
-  expandWithLocalSynonyms,
-  filterRecallHits,
-  filterStopwords,
-  isMetaQuery,
   keywordScore,
   recencyFactor,
-  scoreBM25F,
-  scoreHybridBM25,
-  scorePlainBM25,
   searchRecall,
   tieBreak,
-  tokenizeForRecall,
-  __setTokenizerForTest,
 } from './scoring.js'
-
-// 兼容旧测试：store 曾直接暴露评分函数，现转发自 scoring.ts
-export {
-  BM25_B,
-  BM25_K1,
-  BM25F_B_BODY,
-  BM25F_B_TAGS,
-  BM25F_B_TITLE,
-  BM25F_W_BODY,
-  BM25F_W_TAGS,
-  BM25F_W_TITLE,
-  type Tokenizer,
-  __setTokenizerForTest,
-  searchRecall,
-  FRESH_WINDOW_MS,
-  HYBRID_ALPHA,
-  LOCAL_SYNONYMS,
-  META_QUERY_RE,
-  STOPWORDS,
-  clampInt,
-  expandWithLocalSynonyms,
-  filterRecallHits,
-  filterStopwords,
-  isMetaQuery,
-  keywordScore,
-  recencyFactor,
-  scoreBM25F,
-  scoreHybridBM25,
-  scorePlainBM25,
-  tieBreak,
-  tokenizeForRecall,
-}
-
-let cachedHasKey: boolean | undefined
-let cachedHasKeyAt = 0
-const HAS_KEY_TTL_MS = 30_000
-/** 检测是否已配 DeepSeek Key（保留供外部检测，已不用于召回）。带 30s TTL。 */
-export function hasDeepSeekKey(): boolean {
-  const now = Date.now()
-  if (cachedHasKey !== undefined && now - cachedHasKeyAt < HAS_KEY_TTL_MS) return cachedHasKey
-  if (typeof process.env.DEEPSEEK_API_KEY === 'string' && process.env.DEEPSEEK_API_KEY.trim().length > 0) {
-    cachedHasKey = true
-    cachedHasKeyAt = now
-    return true
-  }
-  try {
-    const raw = readFileSync(join(homedir(), '.dsh', '.credentials.yaml'), 'utf8')
-    // 仅认行首的键，忽略 "# DEEPSEEK_API_KEY: ..." 注释行，兼容引号包裹
-    const m = raw.match(/^\s*DEEPSEEK_API_KEY:\s*["']?([^\s#"']+)["']?/m)
-    const rawHit = m?.[1]?.trim().replace(/^["']|["']$/g, '') ?? ''
-    const hit = rawHit.length > 0
-    cachedHasKey = hit
-    cachedHasKeyAt = now
-    return hit
-  } catch {
-    cachedHasKey = false
-    cachedHasKeyAt = now
-    return false
-  }
-}
-
-/** 清除 hasDeepSeekKey 缓存（测试用，或外部在凭证变更后调用）。 */
-export function clearHasKeyCache(): void {
-  cachedHasKey = undefined
-  cachedHasKeyAt = 0
-}
 
 /**
  * 记忆仓储。表句柄由领域打开后注入；读取同步（领域权威内存态），写入 await 持久化后生效。
@@ -307,13 +216,6 @@ export class MemoryStore {
     } finally {
       release()
     }
-  }
-
-  /**
-   * @deprecated 向量已下掉（保留兼容，调用无效果）
-   */
-  async setEmbedding(_id: string, _embedding: readonly number[], _now: number = Date.now()): Promise<void> {
-    return
   }
 
   /**

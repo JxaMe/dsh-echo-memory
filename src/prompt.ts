@@ -24,16 +24,9 @@ export interface MemoryInjectionConfig {
 
 /**
  * 构造组装期文本提供方：仅负责「记住」捕获后的确认转述（召回已迁至 pre-step）。
- * 保留 _store/_read 参位仅为兼容，实际未用。
- * @param _store - 兼容占位
- * @param _read - 兼容占位
  * @param feed - 捕获确认缓冲（按当前会话消费）。
  */
-export function memoryContextText(
-  _store?: unknown,
-  _read?: () => MemoryInjectionConfig,
-  feed?: CaptureFeed,
-): (context: AssembleContext) => string {
+export function memoryContextText(feed: CaptureFeed): (context: AssembleContext) => string {
   let warnedOnce = false
   return (context) => {
     try {
@@ -54,8 +47,7 @@ export function memoryContextText(
 }
 
 /** 从缓冲取出当前会话的待确认条目（无会话上下文时返回空；取出即消费）。 */
-function takeCapturedFor(feed: CaptureFeed | undefined, context: AssembleContext): ReadonlyArray<{ readonly content: string }> {
-  if (feed === undefined) return []
+function takeCapturedFor(feed: CaptureFeed, context: AssembleContext): ReadonlyArray<{ readonly content: string }> {
   const sessionId = context.agent?.session?.header?.id
   if (sessionId === undefined) return []
   return feed.take(sessionId)

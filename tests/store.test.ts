@@ -5,14 +5,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  keywordScore,
   MemoryStore,
   normalizeContent,
   normalizeTags,
-  recencyFactor,
   renderLine,
 } from '../src/store.js'
 import type { StoreLimits } from '../src/store.js'
+import { keywordScore, recencyFactor } from '../src/scoring.js'
 import { GLOBAL_WORKSPACE, type MemoryRecord } from '../src/domain.js'
 import { FakeKvTable } from './helpers.js'
 

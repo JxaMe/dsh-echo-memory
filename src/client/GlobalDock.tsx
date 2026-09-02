@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { elephantImage } from './elephantImage.ts'
 import { loadDragPos, useDragAnchor as useDockDrag } from './drag-anchor.ts'
-import { fetchList as fetchMemoryList, forgetMemory, saveMemory, updateMemory } from './memory-repo.ts'
-import { useRecallFeed } from './recall-feed.ts'
+import { fetchList as fetchMemoryList, forgetMemory, saveMemory, updateMemory, type MemoryRecord } from './memory-repo.ts'
+import { useRecallFeed, type LastRecall, type RecallHit } from './recall-feed.ts'
 import { copyText, formatTime, splitTitle } from './dock-util.ts'
 import { MemoryListItem } from './memory-list-item.tsx'
 
-type RecallHit = { id: string; kind: string; content: string; tags: readonly string[]; strength: number }
-type LastRecall = { at: number; query: string; hits: RecallHit[] }
-type RecallHistoryEntry = { at: number; query: string; hits: RecallHit[] }
-type MemoryRecord = { id: string; content: string; kind: string; tags: readonly string[]; strength: number; updatedAt: number; workspace: string }
+/** 召回历史条目与最近召回同形（复用 LastRecall）。 */
+type RecallHistoryEntry = LastRecall
 type Toast = { text: string; kind: 'ok' | 'error' }
 
 const STORAGE_KEY = 'dshm-dock-pos'

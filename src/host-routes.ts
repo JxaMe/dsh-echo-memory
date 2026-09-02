@@ -23,13 +23,15 @@ export interface RouteDeps {
   defaultWorkspace: string
 }
 
-function badRequest(message: string): Error {
+/** 构造 400 错误（HTTP 层据此写 400；其余异常一律 500）。 */
+export function badRequest(message: string): Error {
   const e = new Error(message)
   ;(e as unknown as { status: number }).status = 400
   return e
 }
 
-async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
+/** 读取请求 JSON body（≤64KB）；空 body 视为 {}；非法 JSON / 超限抛 400。 */
+export async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
   const MAX_BODY = 64 * 1024
   const chunks: Buffer[] = []
   let size = 0
@@ -48,7 +50,8 @@ async function readJsonBody(req: import('node:http').IncomingMessage): Promise<u
   }
 }
 
-function parseLimit(raw: string | null, fallback: number, min: number, max: number): number {
+/** 解析 limit 查询参数：缺省回 fallback；非数字抛 400；越界 clamp 到 [min,max]。 */
+export function parseLimit(raw: string | null, fallback: number, min: number, max: number): number {
   if (raw === null) return fallback
   const n = Number(raw)
   if (!Number.isFinite(n)) throw badRequest('invalid limit')
@@ -57,7 +60,8 @@ function parseLimit(raw: string | null, fallback: number, min: number, max: numb
   return clamped
 }
 
-function checkSameOrigin(req: import('node:http').IncomingMessage): void {
+/** 同源校验：带 Origin 时要求其 host 与 Host 头一致，否则 400（无 Origin 的本地请求放行）。 */
+export function checkSameOrigin(req: import('node:http').IncomingMessage): void {
   const origin = req.headers.origin as string | undefined
   const host = req.headers.host as string | undefined
   if (origin === undefined || host === undefined) return

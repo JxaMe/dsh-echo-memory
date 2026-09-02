@@ -17,7 +17,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // 与 Host 共享的字段类型（type-only，擦除后不产生运行时依赖）。
 import type { MemorySettings } from '../settings.ts'
 import { MemoryCardController } from './card-controller.ts'
-import type { MemoryCardFace } from './card-controller.ts'
+import type { MemoryCardFace, MemoryStatsPayload } from './card-controller.ts'
 import { MemoryPluginCard } from './MemoryPluginCard.tsx'
 import type { MemoryPluginCardProps } from './MemoryPluginCard.tsx'
 import { createElement } from 'react'
@@ -39,12 +39,6 @@ const MEMORY_SETTINGS_NS_VALUE = 'memory'
 
 /** 本卡片的 locale 命名空间。 */
 const LOCALE_NS = 'settings.memory'
-
-/** Host 返回的运行期统计载荷（与 Host memoryStats() 同形，client 侧自拼类型）。 */
-export interface MemoryStatsPayload {
-  readonly injections: { readonly requests: number; readonly withContent: number }
-  readonly memories: number
-}
 
 /** 必需服务：槽位注册、文案、连接载体、设置 scope 与远程失效转发。 */
 export const inject = ['slots', 'locale', 'connection', 'remote', 'settingsScope']
@@ -69,12 +63,12 @@ export function apply(ctx: ClientContext): void {
   }, 'dsh-echo-memory: global dock')
   const controller = new MemoryCardController(
     ctx.settingsScope.bind<MemorySettings>({ namespace: MEMORY_SETTINGS_NS_VALUE }),
-    () => invokePurge(ctx),
-    () => invokeStats(ctx),
-    () => invokeRecycle(ctx),
-    (id) => invokeRestore(ctx, id),
-    (id) => invokePurgeOne(ctx, id),
-    (id, patch) => invokeUpdate(ctx, id, patch),
+    () => invokePurge(),
+    () => invokeStats(),
+    () => invokeRecycle(),
+    (id) => invokeRestore(id),
+    (id) => invokePurgeOne(id),
+    (id, patch) => invokeUpdate(id, patch),
   )
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
@@ -84,24 +78,20 @@ export function apply(ctx: ClientContext): void {
   }, MemoryPluginCard))
 }
 
-/**
- * 调用 Host 的「彻底删除」——改走 webServer 直连
- * @param _ctx - 未使用，保留签名
- * @returns 本次清除的墓碑条数；失败抛出
- */
+/** 对 Host HTTP 路由发起请求：非 2xx 抛错（失败如实可见），返回解析后的 JSON。 */
 async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(path, init)
   if (!res.ok) throw new Error(`${path} fetch failed HTTP ${res.status}`)
   return res.json() as unknown
 }
 
-async function invokePurge(_ctx: ClientContext): Promise<number> {
+async function invokePurge(): Promise<number> {
   const value = await fetchJson('/api/dsh-echo-memory/purge', { method: 'POST', headers: { 'Accept': 'application/json' } })
   const purged = (value as { readonly purged?: unknown }).purged
   return typeof purged === 'number' ? purged : 0
 }
 
-async function invokeStats(_ctx: ClientContext): Promise<MemoryStatsPayload> {
+async function invokeStats(): Promise<MemoryStatsPayload> {
   const value = await fetchJson('/api/dsh-echo-memory/stats', { method: 'GET', headers: { 'Accept': 'application/json' } })
   const injections = (value as { readonly injections?: unknown }).injections
   const memories = (value as { readonly memories?: unknown }).memories
@@ -113,24 +103,24 @@ async function invokeStats(_ctx: ClientContext): Promise<MemoryStatsPayload> {
   return { injections: { requests, withContent }, memories }
 }
 
-async function invokeRecycle(_ctx: ClientContext): Promise<import('./card-controller.ts').RecycleItem[]> {
+async function invokeRecycle(): Promise<import('./card-controller.ts').RecycleItem[]> {
   const value = await fetchJson('/api/dsh-echo-memory/deleted?limit=20', { method: 'GET', headers: { 'Accept': 'application/json' } })
   const items = (value as { readonly items?: unknown }).items
   if (!Array.isArray(items)) return []
   return items as import('./card-controller.ts').RecycleItem[]
 }
 
-async function invokeRestore(_ctx: ClientContext, id: string): Promise<boolean> {
+async function invokeRestore(id: string): Promise<boolean> {
   const value = await fetchJson('/api/dsh-echo-memory/restore', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
   return Boolean((value as { readonly restored?: unknown }).restored)
 }
 
-async function invokePurgeOne(_ctx: ClientContext, id: string): Promise<boolean> {
+async function invokePurgeOne(id: string): Promise<boolean> {
   const value = await fetchJson('/api/dsh-echo-memory/purge-one', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id }) })
   return Boolean((value as { readonly purged?: unknown }).purged)
 }
 
-async function invokeUpdate(_ctx: ClientContext, id: string, patch: { content?: string }): Promise<boolean> {
+async function invokeUpdate(id: string, patch: { content?: string }): Promise<boolean> {
   const value = await fetchJson('/api/dsh-echo-memory/update', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ id, ...patch }) })
   return Boolean((value as { readonly updated?: unknown }).updated)
 }

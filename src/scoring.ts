@@ -11,9 +11,6 @@ export const FRESH_WINDOW_MS = 90 * 24 * 60 * 60 * 1000
 
 /** BM25 超参（与现有行为一致，保持可复现）。 */
 export const BM25_K1 = 1.2
-export const BM25_B = 0.75
-/** 混合检索时 embedding 余弦的权重（有向量时）。 */
-export const HYBRID_ALPHA = 0.7
 
 /** BM25F 字段权重（v1）：标题 > 标签 > 正文 */
 export const BM25F_W_TITLE = 2.5
@@ -228,75 +225,6 @@ export interface ScoredHit {
   readonly score: number
 }
 
-function buildIdfMap(tokens: readonly string[], candidates: readonly MemoryRecord[]): Map<string, number> {
-  const df = new Map<string, number>()
-  for (const tok of tokens) {
-    let c = 0
-    for (const rec of candidates) if (keywordScore(rec, tok) > 0) c += 1
-    df.set(tok, c)
-  }
-  const N = candidates.length
-  const idf = new Map<string, number>()
-  for (const tok of tokens) {
-    const f = df.get(tok) ?? 0
-    idf.set(tok, Math.log((N - f + 0.5) / (f + 0.5) + 1))
-  }
-  return idf
-}
-
-function buildFieldLenMap(candidates: readonly MemoryRecord[]): { fieldLen: Map<string, number>; avgLen: number } {
-  let totalLen = 0
-  const fieldLen = new Map<string, number>()
-  for (const rec of candidates) {
-    const len = rec.content.length + rec.tags.join(' ').length
-    fieldLen.set(rec.id, len)
-    totalLen += len
-  }
-  const avgLen = totalLen / Math.max(1, candidates.length)
-  return { fieldLen, avgLen }
-}
-
-function bm25ForRecord(
-  record: MemoryRecord,
-  tokens: readonly string[],
-  idf: ReadonlyMap<string, number>,
-  fieldLen: ReadonlyMap<string, number>,
-  avgLen: number,
-): number {
-  let bm25 = 0
-  const len = fieldLen.get(record.id) ?? record.content.length
-  for (const tok of tokens) {
-    const tf = keywordScore(record, tok)
-    if (tf === 0) continue
-    const curIdf = idf.get(tok) ?? 0
-    bm25 += curIdf * (tf * (BM25_K1 + 1) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * (len / Math.max(1, avgLen)))))
-  }
-  return bm25
-}
-
-/**
- * 纯 BM25 评分（无 embedding 混合）：用于 store.searchForRecall 与 tools 的无向量路径。
- * 归一化不在此做（保持与历史 plain 路径一致的原始分），混合路径再归一。
- */
-export function scorePlainBM25(
-  candidates: readonly MemoryRecord[],
-  tokens: readonly string[],
-  now: number,
-): ScoredHit[] {
-  if (candidates.length === 0 || tokens.length === 0) return []
-  const idf = buildIdfMap(tokens, candidates)
-  const { fieldLen, avgLen } = buildFieldLenMap(candidates)
-  const hits: ScoredHit[] = []
-  for (const record of candidates) {
-    const bm25 = bm25ForRecord(record, tokens, idf, fieldLen, avgLen)
-    if (bm25 === 0) continue
-    const score = bm25 * (1 + Math.log2(record.strength)) * recencyFactor(record.updatedAt, now)
-    hits.push({ record, score })
-  }
-  hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
-  return hits
-}
-
 // ————— BM25F v1 —————
 
 function splitTitleRaw(content: string): { title: string; body: string } {
@@ -444,42 +372,3 @@ export function scoreBM25F(
   return hits
 }
 
-/**
- * 混合评分：BM25（归一）+ embedding 余弦。有向量时 hybrid = alpha*cos + (1-alpha)*normBm25，无向量时退化为 normBm25。
- * 调用方需已备好 queryVec（失败则回退到 scorePlainBM25）。
- */
-export function scoreHybridBM25(
-  candidates: readonly MemoryRecord[],
-  tokens: readonly string[],
-  queryVec: readonly number[],
-  now: number,
-  cosineFn: (a: readonly number[], b: readonly number[]) => number,
-  alpha: number = HYBRID_ALPHA,
-): ScoredHit[] {
-  if (candidates.length === 0 || tokens.length === 0) return []
-  const idf = buildIdfMap(tokens, candidates)
-  const { fieldLen, avgLen } = buildFieldLenMap(candidates)
-  const bm25Map = new Map<string, number>()
-  let maxBm25 = 0
-  for (const rec of candidates) {
-    const bm25 = bm25ForRecord(rec, tokens, idf, fieldLen, avgLen)
-    bm25Map.set(rec.id, bm25)
-    if (bm25 > maxBm25) maxBm25 = bm25
-  }
-  const hits: ScoredHit[] = []
-  for (const rec of candidates) {
-    const bm25 = bm25Map.get(rec.id) ?? 0
-    const normBm25 = maxBm25 > 0 ? bm25 / maxBm25 : 0
-    let cos = 0
-    if (rec.embedding && rec.embedding.length > 0) {
-      try { cos = Math.max(0, cosineFn(queryVec, rec.embedding)) } catch { cos = 0 }
-    }
-    const hasVec = rec.embedding !== undefined && rec.embedding.length > 0
-    const hybrid = hasVec ? alpha * cos + (1 - alpha) * normBm25 : normBm25
-    if (hybrid === 0) continue
-    const score = hybrid * (1 + Math.log2(rec.strength)) * recencyFactor(rec.updatedAt, now)
-    hits.push({ record: rec, score })
-  }
-  hits.sort((a, b) => b.score - a.score || tieBreak(a.record, b.record))
-  return hits
-}

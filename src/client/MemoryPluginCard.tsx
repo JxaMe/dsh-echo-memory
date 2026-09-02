@@ -19,6 +19,7 @@ import type { DeletionMode } from '../settings.ts'
 import type { MemoryKey } from './locales.ts'
 import { MemoryDockPreview, ensureDockStyles } from './MemoryDock.tsx'
 import { formatRelativeTime } from './card-util.ts'
+import { copyText } from './dock-util.ts'
 import { elephantImage } from './elephantImage.ts'
 import { MemoryBooleanField, MemoryChoiceField, MemoryTextField } from './card-fields.tsx'
 import { ensureCardStyles } from './card-styles.ts'
@@ -73,21 +74,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
     }
   }, [open, props])
   const handleCopy = (id: string, text: string) => {
-    const doCopy = async () => {
-      try { await navigator.clipboard.writeText(text); return true } catch {}
-      try {
-        const ta = document.createElement('textarea')
-        ta.value = text
-        ta.style.position = 'fixed'
-        ta.style.opacity = '0'
-        document.body.appendChild(ta)
-        ta.select()
-        const ok = document.execCommand('copy')
-        ta.remove()
-        return ok
-      } catch { return false }
-    }
-    void doCopy().then((ok) => {
+    void copyText(text).then((ok) => {
       if (!ok) return
       setCopiedId(id)
       setTimeout(() => setCopiedId(prev => prev === id ? null : prev), 1200)
@@ -298,7 +285,7 @@ export function MemoryPluginCard(props: MemoryPluginCardProps) {
                                   <p className="dshm-hint">试试说：</p>
                                   <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap', marginTop: '4px' }}>
                                     {['记住：这个项目用 pnpm', '记住：VPS 在 192.168.1.10', '记住：偏好简洁回复'].map(ex => (
-                                      <button key={ex} type="button" className="dshm-badge" style={{ cursor: 'pointer', border: 'none' }} onClick={() => { void (async () => { try { await navigator.clipboard.writeText(ex) } catch { const ta=document.createElement('textarea'); ta.value=ex; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy')}catch{} ta.remove() } })() }}>{ex}</button>
+                                      <button key={ex} type="button" className="dshm-badge" style={{ cursor: 'pointer', border: 'none' }} onClick={() => { void copyText(ex) }}>{ex}</button>
                                     ))}
                                   </div>
                                 </div>

@@ -134,10 +134,8 @@ export function createCaptureHandler(
     const used = counts.get(sessionKey) ?? 0
     if (used >= cfg.maxPerSession) return
     const claimed = text.slice(index + pattern.length).replace(/^[:：,，。.\s]+/, '').trim()
-    if (claimed.length === 0) return
     if (claimed.length < 2 || claimed.toLowerCase() === pattern) return
     const content = claimed
-    if (content.length < 2) return
     counts.set(sessionKey, used + 1) // 校验通过后才占额
     const workspace = session.header.cwd ?? GLOBAL_WORKSPACE
     void store.save({ workspace, content, kind: 'fact', source: 'auto', tags: [] })

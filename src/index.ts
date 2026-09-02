@@ -100,7 +100,7 @@ export default class MemoryService extends Service {
     // 设置读取器：schema 默认 < 组合层 base < 用户分节的三层合并只在此一处
     this.settingsReader = createSettingsReader(projectSettings(config))
     this.settingsReader.install(ctx, this.settingsReader.get())
-    this.registerPreviewRoute(ctx)
+    this.registerRoutes(ctx)
   }
 
   /** 打开领域并注册全部能力；配置/版本类错误保持响亮失败，文件损坏则自愈（隔离备份 + 空库）。 */
@@ -224,8 +224,8 @@ export default class MemoryService extends Service {
     return { injections: store.injectionStats, memories: store.liveCount() }
   }
 
-  /** 统计/墓碑清理的 HTTP 直连（供 card/Dock fetch）— 薄转接，逻辑在 host-routes */
-  private registerPreviewRoute(ctx: Context): void {
+  /** 全部 HTTP 路由（统计/墓碑清理/列表/保存等，供 card/Dock fetch）— 薄转接，逻辑在 host-routes */
+  private registerRoutes(ctx: Context): void {
     registerMemoryRoutes(ctx, {
       readSettings: () => this.settingsReader.get(),
       getLastRecall: () => this.recallStore.last ?? { at: 0, query: '', hits: [] },
@@ -263,14 +263,7 @@ export default class MemoryService extends Service {
     this.ctx.systemPrompt.context({
       name: 'memory',
       order: this.config.injectOrder,
-      text: memoryContextText(this.requireStore(), () => {
-        const settings = this.settingsReader.get()
-        return {
-          enabled: settings.injectEnabled,
-          limit: settings.injectLimit,
-          maxChars: settings.injectMaxChars,
-        }
-      }, this.captureFeed),
+      text: memoryContextText(this.captureFeed),
     })
   }
 
