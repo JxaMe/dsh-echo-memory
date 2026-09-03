@@ -8,6 +8,8 @@
 
 记忆**落盘在你本地的 `memory.json`**，人类可读、原子写入、重启不丢。
 
+> **核心定位：极简、纯本地、无向量、无数据库。**
+
 > **兼容性：仅适配 `DSH 0.1.2-alpha.4`（`cordis ^4.0.2`）**。`0.1.10` 起已迁移至 `dsh-client-store / settings.installSection / 3参 intercept`；`0.x` 阶段 API 仍可能 breaking，以 `package.json` 的 peerDependencies 为准。
 
 ## ✨ 核心功能
