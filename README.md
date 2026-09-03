@@ -10,7 +10,7 @@
 
 > **核心定位：极简、纯本地、无向量、无数据库。**
 
-> **兼容性：仅适配 `DSH 0.1.2-alpha.4`（`cordis ^4.0.2`）**。`0.1.10` 起已迁移至 `dsh-client-store / settings.installSection / 3参 intercept`；`0.x` 阶段 API 仍可能 breaking，以 `package.json` 的 peerDependencies 为准。
+> **兼容性：仅适配 `DSH 0.1.2-rc.1`（`cordis ^4.0.2`）**。`0.x` 阶段 API 仍可能 breaking，以 `package.json` 的 peerDependencies 为准。
 
 ## ✨ 核心功能
 
@@ -87,7 +87,7 @@
 
 ## 🔧 安装
 
-> 以 web profile 为例，其他 profile 把 `web` 换成对应名字。已安装 **DSH 0.1.2-alpha.4** 即可，**不需要本地 Node / pnpm**。
+> 以 web profile 为例，其他 profile 把 `web` 换成对应名字。已安装 **DSH 0.1.2-rc.1** 即可，**不需要本地 Node / pnpm**。
 
 把下面的提示词发给 **DSH 的 agent**（新建会话粘贴即可），它会自行判断你的 DSH 安装方式并执行与核验：
 
@@ -147,7 +147,7 @@ dsh plugin --profile web remove dsh-echo-memory
 ## 🧹 已知限制与边界
 
 - **minimal preset 不启用 AI 提议记忆**：极简模式下 DSH 的 `persona complete` 会屏蔽 `systemPrompt.context` 注入，因此 `memory_suggest` 提示词不会注入；手动保存、拖选保存仍然可用。
-- **仅适配 DSH `0.1.2-alpha.4`**：更高版本的 DSH API 未验证，升级 DSH 前建议先验证。
+- **仅适配 DSH `0.1.2-rc.1`**：其他版本未验证，升级 DSH 前建议先验证。
 - **纯本地单表**：无向量库、无数据库、无外部服务；`memory.json` 是唯一数据源。
 - **公开 Service API 已移除**：插件对外只提供 tools 与 HTTP routes，不承诺 `ctx.memory` 服务 API 稳定。
 
