@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-09-03
+
+### Added
+- 核心定位边界守卫：`pnpm run check:boundary`，CI 自动执行，防止引入数据库/向量/外部服务依赖。
+- 文档架构化：`docs/ARCHITECTURE.md`、`docs/HTTP_API.md`、`docs/DATA_MODEL.md`。
+- 补充测试盲区：suggestion-store、host-routes suggestions、dock-util。
+- 固化 5 个 memory 工具的参数/输出契约测试。
+- 将 `docs/` 目录纳入版本控制。
+
+### Changed
+- 根目录架构文档迁移至 `docs/`，README 文档索引同步更新。
+
 ## [0.4.0] - 2026-09-03
 
 ### Added
