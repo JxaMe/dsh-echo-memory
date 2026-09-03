@@ -6,7 +6,7 @@
  */
 
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { MemoryStore } from './store.js'
 import { GLOBAL_WORKSPACE, agentWorkspace } from './domain.js'

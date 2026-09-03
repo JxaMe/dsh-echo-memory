@@ -36,7 +36,7 @@ export function OverrideHead(props: {
 }
 
 /**
- * 渲染一句话字段控件（数字/句式文本，纵向布局对齐官方 ValueField）。
+ * 渲染一句话字段控件（数字/文本，纵向布局对齐官方 ValueField）。
  */
 export function MemoryTextField(props: {
   t: (key: MemoryKey) => string
@@ -45,7 +45,6 @@ export function MemoryTextField(props: {
   hint: string
   state: MemoryCardFieldState
   field: MemoryCardTextField
-  textarea?: boolean | undefined
   numeric?: boolean | undefined
   onEdit: (text: string) => void
   onReset: (field: MemoryCardField) => void
@@ -69,9 +68,7 @@ export function MemoryTextField(props: {
         overridden={state.overridden}
         onReset={() => { props.onReset(props.field) }}
       />
-      {props.textarea === true
-        ? <textarea rows={3} {...common} />
-        : <input type="text" inputMode={props.numeric === true ? 'numeric' : undefined} {...common} />}
+      <input type="text" inputMode={props.numeric === true ? 'numeric' : undefined} {...common} />
       <p className={state.invalid ? 'dshm-invalid' : 'dshm-hint'}>
         {state.invalid ? t('field.invalidNumber') : props.hint}
       </p>

@@ -44,6 +44,7 @@ export default [
     // 类型走 tsc 产出的 lib/types（dts 在此开启会包装 banner/footer，破坏解析）。
     dts: false,
     sourcemap: true,
+    loader: { '.png': 'base64' },
     // tsdown 默认 clean 会清掉 node 半侧产物，必须关掉。
     clean: false,
     deps: {

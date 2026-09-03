@@ -11,7 +11,6 @@ import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { DeletionMode } from '../settings.ts'
 import type { MemorySettings } from '../settings.ts'
 import { isRecord, parseField, projectCardState, type StagedEdit } from './card-projection.ts'
-import type { FieldWrite } from './card-util.ts'
 
 /** 卡片可编辑的字段名。 */
 export type MemoryCardField =

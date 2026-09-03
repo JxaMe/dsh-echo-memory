@@ -198,7 +198,7 @@ export function memoryTools(
       render: (_args, value) => [{ type: 'text', text: renderSearch(value.items) }],
     },
     isConcurrencySafe: () => true,
-    async execute(args, exec) {
+    async execute(args, _exec) {
       const q = args.query?.trim() ?? ''
       if (q.length === 0) {
         const hits = store.search({

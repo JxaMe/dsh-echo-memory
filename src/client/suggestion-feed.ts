@@ -46,7 +46,6 @@ export function useSuggestionFeed(): {
   }, [])
 
   useEffect(() => {
-    let cancelled = false
     let timer: ReturnType<typeof setInterval> | undefined
     const poll = async () => {
       if (document.hidden) return
@@ -64,7 +63,6 @@ export function useSuggestionFeed(): {
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
-      cancelled = true
       if (timer) clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }

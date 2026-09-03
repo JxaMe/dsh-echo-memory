@@ -121,7 +121,7 @@ test('集成：重复保存强化跨重启保留（strength 落盘）', async ()
   const dir = await mkdtemp(join(tmpdir(), 'dsh-int-'))
   try {
     const gen1 = await openStore(dir)
-    const a = await gen1.tools[0]!.execute({ workspace: '/w', content: '强化目标' }, {} as never)
+    await gen1.tools[0]!.execute({ workspace: '/w', content: '强化目标' }, {} as never)
     const b = await gen1.tools[0]!.execute({ workspace: '/w', content: '强化目标' }, {} as never) as {
       existed: boolean; strength: number
     }

@@ -17,9 +17,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // 与 Host 共享的字段类型（type-only，擦除后不产生运行时依赖）。
 import type { MemorySettings } from '../settings.ts'
 import { MemoryCardController } from './card-controller.ts'
-import type { MemoryCardFace, MemoryStatsPayload } from './card-controller.ts'
+import type { MemoryStatsPayload } from './card-controller.ts'
 import { MemoryPluginCard } from './MemoryPluginCard.tsx'
-import type { MemoryPluginCardProps } from './MemoryPluginCard.tsx'
 import { createElement } from 'react'
 // @ts-ignore platform external provided by shell
 import { createRoot } from 'react-dom/client'

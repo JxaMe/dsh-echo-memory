@@ -16,14 +16,14 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-settings'
 import { memoryDomainSpec, GLOBAL_WORKSPACE } from './domain.js'
 import { MemoryStore } from './store.js'
-import type { SaveInput, SaveOutcome, SearchHit } from './store.js'
+import type { SaveInput, SaveOutcome } from './store.js'
 import { memoryTools } from './tools.js'
 import { suggestionPromptText } from './prompt.js'
 import { createRecallMessage, decideRecall, extractQuery, isRecallMessage } from './recall.js'
 import { SuggestionStore } from './suggestion-store.js'
 import { ensureMemoryFileUsable, quarantineMemoryFile } from './migrate.js'
 import {
-  DELETION_MODES, MEMORY_SETTINGS_NS, MEMORY_SETTINGS_SCHEMA,
+  DELETION_MODES,
   type DeletionMode, type MemorySettings,
 } from './settings.js'
 import { registerMemoryRoutes } from './host-routes.js'
