@@ -26,7 +26,9 @@
     "build": "rm -rf lib && tsc -p tsconfig.build.json && tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import tsx/esm --test \"tests/**/*.test.ts\"",
-    "prepare": "pnpm run build"
+    "prepare": "pnpm run build",
+    "lint": "eslint .",
+    "typecheck:strict": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters"
   },
   "dsh": {
     "bundle": {
@@ -80,9 +82,11 @@
     "@deepseek-ai/dsh-system-prompt": "0.1.2-alpha.4",
     "@types/node": "^22.10.0",
     "@types/react": "~18.3.1",
+    "eslint": "^10.9.1",
     "react": "^18.2.0",
     "tsdown": "^0.22.2",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.69.0"
   }
 }

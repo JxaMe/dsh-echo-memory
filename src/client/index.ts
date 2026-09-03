@@ -20,7 +20,7 @@ import { MemoryCardController } from './card-controller.ts'
 import type { MemoryStatsPayload } from './card-controller.ts'
 import { MemoryPluginCard } from './MemoryPluginCard.tsx'
 import { createElement } from 'react'
-// @ts-ignore platform external provided by shell
+// @ts-expect-error platform external provided by shell
 import { createRoot } from 'react-dom/client'
 import { en, zh, type MemoryKey } from './locales.ts'
 import { GlobalDock } from './GlobalDock.tsx'

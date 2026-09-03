@@ -22,7 +22,7 @@ export const BM25F_B_BODY = 0.75
 export const BM25F_B_TAGS = 0
 
 // 中文分词：优先用 segment，失败回退 2-gram
-// @ts-ignore no types for segment
+// @ts-expect-error no types for segment
 import Segment from 'segment'
 let segment: InstanceType<typeof Segment> | null = null
 try {

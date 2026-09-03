@@ -1,4 +1,4 @@
-# 常规提交门禁：每次 push/PR 都跑 typecheck + test + build（与发版流水线同构，不发布）。
+# 常规提交门禁：每次 push/PR 都跑 typecheck + strict typecheck + lint + test + build。
 # 保护日常提交：任何回归在合入 master 前被发现，而不是等到发版时。
 
 name: ci
@@ -26,8 +26,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck (strict)
+      - name: Typecheck
         run: pnpm run typecheck
+
+      - name: Typecheck (strict)
+        run: pnpm run typecheck:strict
+
+      - name: Lint
+        run: pnpm run lint
 
       - name: Test
         run: pnpm test
