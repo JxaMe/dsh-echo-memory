@@ -218,6 +218,38 @@ test('list：带 q 走 searchRecent；不带 q 走 listRecent；limit 解析传�
   assert.deepEqual(base.calls.listRecent?.[0], [20])
 })
 
+test('suggestions：GET 列表 / dismiss / confirm 正常流转', async () => {
+  const base = stubDeps({
+    getSuggestions: () => { base.calls.getSuggestions?.push([]); return [{ id: 's1', content: '建议', workspace: '*' }] },
+  })
+  const { registrations } = mockCtx(base.deps)
+  const list = registrations.find(r => r.path === '/api/dsh-echo-memory/suggestions')!
+  const res = fakeRes()
+  await list.handler(fakeReq('/api/dsh-echo-memory/suggestions'), res.res)
+  assert.equal(res.out.status, 200)
+  assert.deepEqual(JSON.parse(res.out.body as string), { items: [{ id: 's1', content: '建议', workspace: '*' }] })
+
+  const dismiss = registrations.find(r => r.path === '/api/dsh-echo-memory/suggestions/dismiss')!
+  const bad = fakeRes()
+  await dismiss.handler(fakeReq('/api/dsh-echo-memory/suggestions/dismiss', {}, ['{}']), bad.res)
+  assert.equal(bad.out.status, 400)
+  const ok = fakeRes()
+  await dismiss.handler(fakeReq('/api/dsh-echo-memory/suggestions/dismiss', {}, [JSON.stringify({ id: 's1' })]), ok.res)
+  assert.equal(ok.out.status, 200)
+  assert.deepEqual(JSON.parse(ok.out.body as string), { dismissed: true })
+  assert.deepEqual(base.calls.dismissSuggestion?.[0], ['s1'])
+
+  const confirm = registrations.find(r => r.path === '/api/dsh-echo-memory/suggestions/confirm')!
+  const cbad = fakeRes()
+  await confirm.handler(fakeReq('/api/dsh-echo-memory/suggestions/confirm', {}, ['{}']), cbad.res)
+  assert.equal(cbad.out.status, 400)
+  const cok = fakeRes()
+  await confirm.handler(fakeReq('/api/dsh-echo-memory/suggestions/confirm', {}, [JSON.stringify({ id: 's1' })]), cok.res)
+  assert.equal(cok.out.status, 200)
+  assert.deepEqual(JSON.parse(cok.out.body as string), { saved: true, id: 's1' })
+  assert.deepEqual(base.calls.confirmSuggestion?.[0], ['s1'])
+})
+
 test('内部失败如实 500（不吞异常伪装成功）', async () => {
   const base = stubDeps({
     memoryStats: () => { throw new Error('boom') },
