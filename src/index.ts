@@ -186,8 +186,8 @@ export default class MemoryService extends Service {
         const outcome = await this.save({
           workspace: entry.workspace,
           content: entry.content,
-          kind: entry.kind as never,
-          tags: entry.tags as never,
+          kind: entry.kind,
+          tags: entry.tags,
           source: 'agent',
         })
         this.suggestionStore.dismiss(id)

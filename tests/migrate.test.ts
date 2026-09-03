@@ -8,6 +8,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ensureMemoryFileUsable, MEMORY_MIGRATIONS, migrateMemoryFile, quarantineMemoryFile, type MemoryMigration } from '../src/migrate.js'
+import { memoryRecordSchema } from '../src/domain.js'
 
 /** 造一个合法形状的记忆文件。 */
 function file(version: number, records: Record<string, unknown>): string {
@@ -101,6 +102,24 @@ test('v2→v3：移除向量字段并把旧 auto 来源归一为 agent', async (
     assert.equal(after.tables.memories.b.source, 'agent')
     assert.ok(!('embedding' in after.tables.memories.a))
     assert.ok(!('embeddingAt' in after.tables.memories.a))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('0.3.x 旧文件：ensureMemoryFileUsable 迁移后记录可通过 v3 schema', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-migrate-'))
+  try {
+    await writeFile(join(dir, 'memory.json'), file(2, {
+      a: { id: 'a', workspace: '/w', kind: 'fact', content: '旧自动捕获', tags: ['old'], strength: 1, source: 'auto', createdAt: 1, updatedAt: 1, embedding: [0.1], embeddingAt: 1 },
+      b: { id: 'b', workspace: '*', kind: 'preference', content: '普通保存', tags: [], strength: 2, source: 'agent', createdAt: 2, updatedAt: 2 },
+    }))
+    const outcome = await ensureMemoryFileUsable(dir, 3)
+    assert.equal(outcome.kind, 'ok')
+    const after = JSON.parse(await readFile(join(dir, 'memory.json'), 'utf8'))
+    for (const record of Object.values(after.tables.memories)) {
+      assert.doesNotThrow(() => memoryRecordSchema.parse(record))
+    }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

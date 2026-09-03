@@ -3,10 +3,12 @@
  * @module dsh-echo-memory/suggestion-store
  */
 
+import type { MemoryKind } from './domain.js'
+
 export interface SuggestionEntry {
   readonly id: string
   readonly content: string
-  readonly kind?: string | undefined
+  readonly kind?: MemoryKind | undefined
   readonly tags?: readonly string[] | undefined
   readonly workspace: string
   readonly at: number
@@ -23,7 +25,7 @@ export class SuggestionStore {
   }
 
   add(
-    input: string | { content: string; kind?: string | undefined; tags?: readonly string[] | undefined; workspace?: string | undefined },
+    input: string | { content: string; kind?: MemoryKind | undefined; tags?: readonly string[] | undefined; workspace?: string | undefined },
     now: number = Date.now(),
   ): SuggestionEntry {
     const raw = typeof input === 'string' ? input : input.content

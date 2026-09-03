@@ -142,3 +142,31 @@ dsh plugin --profile web remove dsh-echo-memory
 ## License
 
 [MIT](LICENSE)
+## 🧹 已知限制与边界
+
+- **minimal preset 不启用 AI 提议记忆**：极简模式下 DSH 的 `persona complete` 会屏蔽 `systemPrompt.context` 注入，因此 `memory_suggest` 提示词不会注入；手动保存、拖选保存仍然可用。
+- **仅适配 DSH `0.1.2-alpha.4`**：更高版本的 DSH API 未验证，升级 DSH 前建议先验证。
+- **纯本地单表**：无向量库、无数据库、无外部服务；`memory.json` 是唯一数据源。
+- **公开 Service API 已移除**：插件对外只提供 tools 与 HTTP routes，不承诺 `ctx.memory` 服务 API 稳定。
+
+## ⬆️ 升级说明
+
+### 0.3.x → 0.4.0
+
+- 启动后会自动执行 `memory.json` v2→v3 迁移：
+  - 移除 `embedding` / `embeddingAt` 字段
+  - 旧 `source=auto` 统一归一到 `agent`
+- 迁移是幂等的；迁移前建议备份 `memory.json`。
+- 设置卡片保留 4 项：注入开关 / 注入条数 / 注入长度 / 删除模式。
+
+## 🛠️ 开发与质量门禁
+
+```sh
+pnpm run typecheck        # 严格类型检查
+pnpm run typecheck:strict # 额外检查未使用变量/参数
+pnpm run lint             # ESLint
+pnpm test                 # 单元/集成测试
+pnpm run build            # 双半侧构建
+```
+
+CI 会在每次 push / PR 自动运行以上全部检查。
