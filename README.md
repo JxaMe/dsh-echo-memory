@@ -161,6 +161,12 @@ dsh plugin --profile web remove dsh-echo-memory
 - 迁移是幂等的；迁移前建议备份 `memory.json`。
 - 设置卡片保留 4 项：注入开关 / 注入条数 / 注入长度 / 删除模式。
 
+## 📚 文档
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构与核心定位边界
+- [HTTP_API.md](HTTP_API.md) — HTTP 路由契约
+- [DATA_MODEL.md](DATA_MODEL.md) — 数据模型与迁移说明
+
 ## 🛠️ 开发与质量门禁
 
 ```sh
