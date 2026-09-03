@@ -91,13 +91,30 @@ test('memoryTools（未注入 suggestionStore）：注册 4 个基础工具且�
   assert.deepEqual(forget.parameters.required, ['id'])
 })
 
-test('memoryTools（注入 suggestionStore）：注册 5 个工具含 memory_suggest', () => {
+test('memoryTools（注入 suggestionStore）：注册 5 个工具且参数/输出契约完整', () => {
   const tools = memoryTools(makeStore(), GLOBAL_WORKSPACE, () => 'tombstone', new SuggestionStore())
   assert.deepEqual(tools.map(t => t.name).sort(), ['memory_forget', 'memory_restore', 'memory_save', 'memory_search', 'memory_suggest'])
-  const suggest = tools.find(t => t.name === 'memory_suggest')!
-  const suggestParams = suggest.parameters.properties as Record<string, { type?: string }>
-  assert.equal(suggestParams.content!.type, 'string')
+
+  const byName = new Map(tools.map(t => [t.name, t]))
+  const save = byName.get('memory_save')!
+  assert.deepEqual(save.parameters.required, ['content'])
+  assert.ok((save.output.schema.required as readonly string[] | undefined)?.includes('id'))
+
+  const search = byName.get('memory_search')!
+  assert.ok(search.parameters.properties)
+  assert.ok((search.output.schema.required as readonly string[] | undefined)?.includes('items'))
+
+  const forget = byName.get('memory_forget')!
+  assert.deepEqual(forget.parameters.required, ['id'])
+  assert.ok((forget.output.schema.required as readonly string[] | undefined)?.includes('removed'))
+
+  const restore = byName.get('memory_restore')!
+  assert.deepEqual(restore.parameters.required, ['id'])
+  assert.ok((restore.output.schema.required as readonly string[] | undefined)?.includes('restored'))
+
+  const suggest = byName.get('memory_suggest')!
   assert.deepEqual(suggest.parameters.required, ['content'])
+  assert.ok((suggest.output.schema.required as readonly string[] | undefined)?.includes('suggested'))
 })
 
 // ---------- execute 行为 ----------
