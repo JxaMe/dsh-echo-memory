@@ -1,6 +1,6 @@
 {
   "name": "dsh-echo-memory",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "DSH 专用记忆插件：跨会话持久记忆（存储领域 + agent 记忆工具 + 系统提示词注入 + AI 建议记忆 + 设置面板卡片）",
   "type": "module",
   "main": "lib/index.js",
