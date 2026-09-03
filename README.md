@@ -167,6 +167,7 @@ dsh plugin --profile web remove dsh-echo-memory
 pnpm run typecheck        # 严格类型检查
 pnpm run typecheck:strict # 额外检查未使用变量/参数
 pnpm run lint             # ESLint
+pnpm run check:boundary   # 核心定位边界检查（极简/纯本地/无向量/无数据库）
 pnpm test                 # 单元/集成测试
 pnpm run build            # 双半侧构建
 ```

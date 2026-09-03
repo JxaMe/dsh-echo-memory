@@ -28,7 +28,8 @@
     "test": "node --import tsx/esm --test \"tests/**/*.test.ts\"",
     "prepare": "pnpm run build",
     "lint": "eslint .",
-    "typecheck:strict": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters"
+    "typecheck:strict": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters",
+    "check:boundary": "node scripts/check-boundary.mjs"
   },
   "dsh": {
     "bundle": {
