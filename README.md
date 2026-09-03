@@ -163,9 +163,9 @@ dsh plugin --profile web remove dsh-echo-memory
 
 ## 📚 文档
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — 架构与核心定位边界
-- [HTTP_API.md](HTTP_API.md) — HTTP 路由契约
-- [DATA_MODEL.md](DATA_MODEL.md) — 数据模型与迁移说明
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 架构与核心定位边界
+- [docs/HTTP_API.md](docs/HTTP_API.md) — HTTP 路由契约
+- [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — 数据模型与迁移说明
 
 ## 🛠️ 开发与质量门禁
 
